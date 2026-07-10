@@ -1,0 +1,25 @@
+# Maven
+efd-blocok-app/target/
+
+# Temporários
+_xlsx_tmp/
+*.tmp
+
+# Saídas geradas pela aplicação
+blocoK_gerado.*
+SpedEFD_com_BlocoK.txt
+
+# Dados de trabalho (arquivos grandes)
+*.xlsx
+*.XLSX
+*.TXT
+*.pdf
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# SO
+.DS_Store
+Thumbs.db
