@@ -14,7 +14,7 @@ import java.util.function.Consumer;
 public class EfdMerger {
 
     private static final String[][] BLOCOS = {
-            {"0001", "0990"},
+            {"0000", "0990"},
             {"B001", "B990"},
             {"C001", "C990"},
             {"D001", "D990"},
@@ -296,6 +296,7 @@ public class EfdMerger {
 
         int newIdx9001 = -1;
         int newIdx9990 = -1;
+        int newIdx9999 = -1;
         for (int i = 0; i < lines.size(); i++) {
             String reg = SpedLineUtils.registro(lines.get(i));
             if ("9001".equals(reg)) {
@@ -304,9 +305,12 @@ public class EfdMerger {
             if ("9990".equals(reg)) {
                 newIdx9990 = i;
             }
+            if ("9999".equals(reg)) {
+                newIdx9999 = i;
+            }
         }
-        if (newIdx9001 >= 0 && newIdx9990 >= newIdx9001) {
-            int qtdBloco9 = newIdx9990 - newIdx9001 + 1;
+        if (newIdx9001 >= 0 && newIdx9990 >= newIdx9001 && newIdx9999 >= newIdx9990) {
+            int qtdBloco9 = newIdx9999 - newIdx9001 + 1;
             lines.set(newIdx9990, "|9990|" + qtdBloco9 + "|");
         }
     }
