@@ -7,6 +7,8 @@ import br.com.triumph.efd.model.BlocoKResult;
 import br.com.triumph.efd.model.EfdFile;
 import br.com.triumph.efd.model.InsumoConsumo;
 import br.com.triumph.efd.model.ProdutoAcabado;
+import br.com.triumph.efd.model.Registro0200Result;
+import br.com.triumph.efd.model.Registro0200Result.Registro0200Item;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -18,27 +20,42 @@ public class EfdBlocoKService {
     private final ProdutoAcabadoReader produtoReader = new ProdutoAcabadoReader();
     private final InsumoReader insumoReader = new InsumoReader();
     private final BlocoKGenerator blocoKGenerator = new BlocoKGenerator();
+    private final Registro0200Generator registro0200Generator = new Registro0200Generator();
     private final EfdMerger efdMerger = new EfdMerger();
 
     private EfdFile efdAtual;
     private List<ProdutoAcabado> produtos;
     private List<InsumoConsumo> insumos;
     private BlocoKResult blocoK;
+    private Registro0200Result registros0200;
     private List<String> novoEfd;
 
     public EfdFile importarEfd(Path path) throws Exception {
         efdAtual = efdReader.read(path);
+        produtos = null;
+        insumos = null;
+        blocoK = null;
+        registros0200 = null;
+        novoEfd = null;
         return efdAtual;
     }
 
     public List<ProdutoAcabado> importarProdutos(Path path) throws Exception {
-        produtos = produtoReader.read(path);
+        exigirPeriodo();
+        produtos = produtoReader.read(path, efdAtual.getDataInicial(), efdAtual.getDataFinal());
         return produtos;
     }
 
     public List<InsumoConsumo> importarInsumos(Path path, Consumer<String> progress) throws Exception {
-        insumos = insumoReader.read(path, progress);
+        exigirPeriodo();
+        insumos = insumoReader.read(path, progress, efdAtual.getDataInicial(), efdAtual.getDataFinal());
         return insumos;
+    }
+
+    private void exigirPeriodo() {
+        if (efdAtual == null || efdAtual.getDataInicial() == null || efdAtual.getDataFinal() == null) {
+            throw new IllegalStateException("Importe o EFD atual antes das planilhas. A leitura usa o período do arquivo.");
+        }
     }
 
     public BlocoKResult gerarBlocoK(boolean preservarK200, Consumer<String> progress) {
@@ -55,15 +72,52 @@ public class EfdBlocoKService {
         return blocoK;
     }
 
-    public List<String> gerarNovoEfd(Consumer<String> progress) throws Exception {
+    /**
+     * Gera registros 0200 a partir dos insumos ignorados do último Bloco K.
+     * Os códigos passam a ser reconhecidos pelo EFD em memória.
+     */
+    public Registro0200Result gerarRegistros0200(Consumer<String> progress) {
         if (efdAtual == null) {
             throw new IllegalStateException("Importe o EFD atual primeiro.");
         }
-        if (blocoK == null) {
-            throw new IllegalStateException("Gere o Bloco K antes de montar o novo EFD.");
+        if (blocoK == null || blocoK.getInsumosIgnoradosLista().isEmpty()) {
+            throw new IllegalStateException("Não há insumos ignorados. Gere o Bloco K primeiro.");
         }
-        novoEfd = efdMerger.merge(efdAtual, blocoK, progress);
+
+        registros0200 = registro0200Generator.gerar(
+                blocoK.getInsumosIgnoradosLista(), efdAtual, progress);
+
+        for (Registro0200Item item : registros0200.getItens()) {
+            efdAtual.registrarItem0200(item.getCodItem(), item.getDescrItem());
+        }
+
+        if (progress != null) {
+            progress.accept("Códigos 0200 registrados em memória. Regenerar o Bloco K para incluir estes insumos no K235.");
+        }
+        return registros0200;
+    }
+
+    public List<String> gerarNovoEfd(boolean incluirBlocoK, boolean incluir0200, Consumer<String> progress) throws Exception {
+        if (efdAtual == null) {
+            throw new IllegalStateException("Importe o EFD atual primeiro.");
+        }
+        if (!incluirBlocoK && !incluir0200) {
+            throw new IllegalStateException("Marque ao menos uma opção: Incluir Bloco K ou Incluir 0200 gerados.");
+        }
+        if (incluirBlocoK && blocoK == null) {
+            throw new IllegalStateException("Gere o Bloco K antes de incluí-lo no novo EFD.");
+        }
+        if (incluir0200 && (registros0200 == null || registros0200.isEmpty())) {
+            throw new IllegalStateException("Gere os registros 0200 (aba Insumos ignorados) antes de incluí-los.");
+        }
+
+        novoEfd = efdMerger.merge(efdAtual, blocoK, registros0200, incluirBlocoK, incluir0200, progress);
         return novoEfd;
+    }
+
+    /** Compatibilidade: inclui Bloco K (comportamento anterior). */
+    public List<String> gerarNovoEfd(Consumer<String> progress) throws Exception {
+        return gerarNovoEfd(true, registros0200 != null && !registros0200.isEmpty(), progress);
     }
 
     public void salvarNovoEfd(Path path) throws Exception {
@@ -80,6 +134,13 @@ public class EfdBlocoKService {
         efdReader.write(path, blocoK.getLinhas());
     }
 
+    public void salvarRegistros0200(Path path) throws Exception {
+        if (registros0200 == null || registros0200.isEmpty()) {
+            throw new IllegalStateException("Gere os registros 0200 antes de salvar.");
+        }
+        efdReader.write(path, registros0200.getLinhas());
+    }
+
     public EfdFile getEfdAtual() {
         return efdAtual;
     }
@@ -94,6 +155,10 @@ public class EfdBlocoKService {
 
     public BlocoKResult getBlocoK() {
         return blocoK;
+    }
+
+    public Registro0200Result getRegistros0200() {
+        return registros0200;
     }
 
     public List<String> getNovoEfd() {

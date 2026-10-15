@@ -2,6 +2,7 @@ package br.com.triumph.efd.service;
 
 import br.com.triumph.efd.model.BlocoKResult;
 import br.com.triumph.efd.model.EfdFile;
+import br.com.triumph.efd.model.Registro0200Result;
 import br.com.triumph.efd.util.SpedLineUtils;
 
 import java.util.ArrayList;
@@ -26,12 +27,107 @@ public class EfdMerger {
     };
 
     public List<String> merge(EfdFile efdOriginal, BlocoKResult blocoK, Consumer<String> progress) {
+        return merge(efdOriginal, blocoK, null, true, false, progress);
+    }
+
+    public List<String> merge(EfdFile efdOriginal,
+                              BlocoKResult blocoK,
+                              Registro0200Result registros0200,
+                              boolean incluirBlocoK,
+                              boolean incluir0200,
+                              Consumer<String> progress) {
+
+        if (!incluirBlocoK && !incluir0200) {
+            throw new IllegalStateException("Selecione ao menos uma opção: incluir Bloco K ou incluir 0200 gerados.");
+        }
+        if (incluirBlocoK && (blocoK == null || blocoK.getLinhas().isEmpty())) {
+            throw new IllegalStateException("Não há Bloco K gerado para incluir no novo EFD.");
+        }
+        if (incluir0200 && (registros0200 == null || registros0200.isEmpty())) {
+            throw new IllegalStateException("Não há registros 0200 gerados para incluir no novo EFD.");
+        }
+
         if (progress != null) {
-            progress.accept("Mesclando Bloco K no EFD...");
+            progress.accept("Montando novo EFD"
+                    + (incluirBlocoK ? " + Bloco K" : "")
+                    + (incluir0200 ? " + 0200 gerados" : "")
+                    + "...");
         }
 
         List<String> origem = limparLinhasSped(efdOriginal.getLines(), progress);
-        List<String> saida = new ArrayList<>(origem.size() + blocoK.getLinhas().size());
+        List<String> saida = new ArrayList<>(origem);
+
+        if (incluir0200) {
+            saida = inserir0200(saida, efdOriginal, registros0200, progress);
+        }
+
+        if (incluirBlocoK) {
+            saida = inserirBlocoK(saida, blocoK, progress);
+        }
+
+        recalcularTotais(saida, progress);
+
+        if (progress != null) {
+            progress.accept("Novo EFD montado com " + saida.size() + " linhas (sem assinatura digital).");
+        }
+        return saida;
+    }
+
+    private List<String> inserir0200(List<String> origem,
+                                     EfdFile efd,
+                                     Registro0200Result registros0200,
+                                     Consumer<String> progress) {
+        List<String> novas = new ArrayList<>();
+
+        // Garante unidade UNIT no 0190, se ainda não existir
+        boolean precisa0190 = !efd.possuiUnidade0190("UNIT");
+        if (precisa0190) {
+            novas.add("|0190|UNIT|UNIDADE|");
+        }
+        novas.addAll(registros0200.getLinhas());
+
+        int insertAt = localizarInsercao0200(origem);
+        List<String> saida = new ArrayList<>(origem.size() + novas.size());
+        saida.addAll(origem.subList(0, insertAt));
+        saida.addAll(novas);
+        saida.addAll(origem.subList(insertAt, origem.size()));
+
+        if (progress != null) {
+            progress.accept("Inseridos " + registros0200.total() + " registro(s) 0200"
+                    + (precisa0190 ? " e 1 registro 0190 (UNIT)" : "")
+                    + " no Bloco 0.");
+        }
+        return saida;
+    }
+
+    /**
+     * Insere após o último 0200/0205/0220; se não houver, antes do 0990; senão no fim do Bloco 0.
+     */
+    private int localizarInsercao0200(List<String> linhas) {
+        int ultimoItem = -1;
+        int idx0990 = -1;
+        for (int i = 0; i < linhas.size(); i++) {
+            String reg = SpedLineUtils.registro(linhas.get(i));
+            if ("0200".equals(reg) || "0205".equals(reg) || "0220".equals(reg) || "0190".equals(reg)) {
+                ultimoItem = i;
+            }
+            if ("0990".equals(reg) && idx0990 < 0) {
+                idx0990 = i;
+            }
+        }
+        if (ultimoItem >= 0) {
+            return ultimoItem + 1;
+        }
+        if (idx0990 >= 0) {
+            return idx0990;
+        }
+        return linhas.size();
+    }
+
+    private List<String> inserirBlocoK(List<String> origem, BlocoKResult blocoK, Consumer<String> progress) {
+        if (progress != null) {
+            progress.accept("Mesclando Bloco K no EFD...");
+        }
 
         int idxK001 = -1;
         int idxK990 = -1;
@@ -50,6 +146,7 @@ public class EfdMerger {
             }
         }
 
+        List<String> saida = new ArrayList<>(origem.size() + blocoK.getLinhas().size());
         if (idxK001 >= 0 && idxK990 >= 0) {
             saida.addAll(origem.subList(0, idxK001));
             saida.addAll(blocoK.getLinhas());
@@ -59,22 +156,8 @@ public class EfdMerger {
             saida.addAll(blocoK.getLinhas());
             saida.addAll(origem.subList(idx9001, origem.size()));
         } else {
-            int insertAt = origem.size();
-            for (int i = 0; i < origem.size(); i++) {
-                if ("9001".equals(SpedLineUtils.registro(origem.get(i)))) {
-                    insertAt = i;
-                    break;
-                }
-            }
-            saida.addAll(origem.subList(0, insertAt));
+            saida.addAll(origem);
             saida.addAll(blocoK.getLinhas());
-            saida.addAll(origem.subList(insertAt, origem.size()));
-        }
-
-        recalcularTotais(saida, progress);
-
-        if (progress != null) {
-            progress.accept("Novo EFD montado com " + saida.size() + " linhas (sem assinatura digital).");
         }
         return saida;
     }
@@ -110,7 +193,6 @@ public class EfdMerger {
             progress.accept("Recalculando totalizadores (blocos, 9900, 9990, 9999)...");
         }
 
-        // Remove qualquer resíduo após 9999 ou linha inválida
         int corte = lines.size();
         for (int i = 0; i < lines.size(); i++) {
             if (!SpedLineUtils.isLinhaSped(lines.get(i))) {

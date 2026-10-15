@@ -1,8 +1,11 @@
 package br.com.triumph.efd.ui;
 
 import br.com.triumph.efd.io.BlocoKExportService;
+import br.com.triumph.efd.io.BlocoKValidacaoExportService;
 import br.com.triumph.efd.model.BlocoKLinha;
 import br.com.triumph.efd.model.BlocoKResult;
+import br.com.triumph.efd.model.InsumoConsumo;
+import br.com.triumph.efd.model.ProdutoAcabado;
 import br.com.triumph.efd.util.SpedLineParser;
 
 import javax.swing.BorderFactory;
@@ -40,6 +43,7 @@ public class BlocoKViewerPanel extends JPanel {
     private static final int PAGE_SIZE = 500;
 
     private final BlocoKExportService exportService = new BlocoKExportService();
+    private final BlocoKValidacaoExportService validacaoExportService = new BlocoKValidacaoExportService();
     private final JLabel lblResumo = new JLabel("Nenhum Bloco K gerado ainda.");
     private final JComboBox<String> cmbRegistro = new JComboBox<>();
     private final JTextField txtBusca = new JTextField(20);
@@ -51,12 +55,15 @@ public class BlocoKViewerPanel extends JPanel {
     private final JButton btnExportarTxt = new JButton("Exportar TXT");
     private final JButton btnExportarCsv = new JButton("Exportar CSV");
     private final JButton btnExportarXlsx = new JButton("Exportar Excel");
+    private final JButton btnRelatorio = new JButton("Relatório de validação");
     private final JLabel lblExportStatus = new JLabel(" ");
 
     private final LinhasTableModel tableModel = new LinhasTableModel();
     private final JTable table = new JTable(tableModel);
 
     private BlocoKResult blocoK;
+    private List<ProdutoAcabado> produtos = List.of();
+    private List<InsumoConsumo> insumos = List.of();
     private List<BlocoKLinha> todasLinhas = List.of();
     private List<BlocoKLinha> linhasFiltradas = List.of();
     private int paginaAtual = 1;
@@ -95,6 +102,7 @@ public class BlocoKViewerPanel extends JPanel {
         export.add(btnExportarTxt);
         export.add(btnExportarCsv);
         export.add(btnExportarXlsx);
+        export.add(btnRelatorio);
         export.add(lblExportStatus);
 
         table.setAutoCreateRowSorter(false);
@@ -134,6 +142,13 @@ public class BlocoKViewerPanel extends JPanel {
         btnExportarTxt.addActionListener(e -> exportar(BlocoKExportService.Formato.TXT, "blocoK_gerado.txt", "txt"));
         btnExportarCsv.addActionListener(e -> exportar(BlocoKExportService.Formato.CSV, "blocoK_gerado.csv", "csv"));
         btnExportarXlsx.addActionListener(e -> exportar(BlocoKExportService.Formato.XLSX, "blocoK_gerado.xlsx", "xlsx"));
+        btnRelatorio.addActionListener(e -> exportarRelatorio());
+    }
+
+    public void carregar(BlocoKResult result, List<ProdutoAcabado> produtos, List<InsumoConsumo> insumos) {
+        this.produtos = produtos == null ? List.of() : produtos;
+        this.insumos = insumos == null ? List.of() : insumos;
+        carregar(result);
     }
 
     public void carregar(BlocoKResult result) {
@@ -174,6 +189,8 @@ public class BlocoKViewerPanel extends JPanel {
 
     public void limpar() {
         blocoK = null;
+        produtos = List.of();
+        insumos = List.of();
         todasLinhas = List.of();
         linhasFiltradas = List.of();
         paginaAtual = 1;
@@ -196,6 +213,7 @@ public class BlocoKViewerPanel extends JPanel {
         btnExportarTxt.setEnabled(enabled);
         btnExportarCsv.setEnabled(enabled);
         btnExportarXlsx.setEnabled(enabled);
+        btnRelatorio.setEnabled(enabled);
         table.setEnabled(enabled);
     }
 
@@ -325,10 +343,74 @@ public class BlocoKViewerPanel extends JPanel {
         worker.execute();
     }
 
+    private void exportarRelatorio() {
+        if (blocoK == null) {
+            JOptionPane.showMessageDialog(this, "Gere o Bloco K antes de exportar o relatório.", "Aviso", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        JFileChooser chooser = new JFileChooser(new File("c:\\trabalhos\\EFD-blocok"));
+        chooser.setSelectedFile(new File("relatorio_validacao_blocoK.xlsx"));
+        chooser.setFileFilter(new FileNameExtensionFilter("Excel (*.xlsx)", "xlsx"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File file = chooser.getSelectedFile();
+        String path = file.getAbsolutePath();
+        if (!path.toLowerCase(Locale.ROOT).endsWith(".xlsx")) {
+            file = new File(path + ".xlsx");
+        }
+        File destino = file;
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        ExportProgressDialog progressDialog = new ExportProgressDialog(owner, "Relatório de validação", "Preparando relatório...");
+        setExportando(true, null, "Gerando relatório...");
+
+        SwingWorker<Void, String> worker = new SwingWorker<>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                validacaoExportService.exportar(destino.toPath(), produtos, insumos, blocoK, this::publish);
+                return null;
+            }
+
+            @Override
+            protected void process(List<String> chunks) {
+                String ultima = chunks.get(chunks.size() - 1);
+                progressDialog.atualizar(ultima);
+                lblExportStatus.setText(ultima);
+            }
+
+            @Override
+            protected void done() {
+                setExportando(false, null, null);
+                try {
+                    get();
+                    progressDialog.concluir("Relatório salvo com sucesso!");
+                    Timer timer = new Timer(600, e -> {
+                        progressDialog.dispose();
+                        JOptionPane.showMessageDialog(BlocoKViewerPanel.this,
+                                "Relatório exportado:\n" + destino.getAbsolutePath(),
+                                "Validação", JOptionPane.INFORMATION_MESSAGE);
+                        lblExportStatus.setText("Relatório de validação concluído.");
+                    });
+                    timer.setRepeats(false);
+                    timer.start();
+                } catch (Exception ex) {
+                    progressDialog.dispose();
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    lblExportStatus.setText("Erro no relatório.");
+                    JOptionPane.showMessageDialog(BlocoKViewerPanel.this,
+                            cause.getMessage(), "Erro na exportação", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        progressDialog.exibir();
+        worker.execute();
+    }
+
     private void setExportando(boolean exportando, BlocoKExportService.Formato formato, String status) {
         btnExportarTxt.setEnabled(!exportando && blocoK != null);
         btnExportarCsv.setEnabled(!exportando && blocoK != null);
         btnExportarXlsx.setEnabled(!exportando && blocoK != null);
+        btnRelatorio.setEnabled(!exportando && blocoK != null);
         if (exportando && formato != null) {
             btnExportarTxt.setText(formato == BlocoKExportService.Formato.TXT ? "Exportando..." : "Exportar TXT");
             btnExportarCsv.setText(formato == BlocoKExportService.Formato.CSV ? "Exportando..." : "Exportar CSV");

@@ -38,7 +38,7 @@ public class SmokeTest {
         System.out.println("K230=" + k.getQtdK230() + " K235=" + k.getQtdK235() + " linhas=" + k.totalLinhas());
 
         System.out.println("Gerando novo EFD...");
-        var novo = service.gerarNovoEfd(System.out::println);
+        var novo = service.gerarNovoEfd(true, false, System.out::println);
         service.salvarNovoEfd(saida);
         service.salvarBlocoK(Path.of(saida.toString().replace(".txt", "_apenas_blocoK.txt")));
         System.out.println("Salvo: " + saida + " (" + novo.size() + " linhas)");

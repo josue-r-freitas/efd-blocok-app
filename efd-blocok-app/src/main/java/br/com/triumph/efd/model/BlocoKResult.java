@@ -7,6 +7,7 @@ public class BlocoKResult {
 
     private final List<String> linhas = new ArrayList<>();
     private final List<String> avisos = new ArrayList<>();
+    private final List<InsumoIgnorado> insumosIgnoradosLista = new ArrayList<>();
     private int qtdK230;
     private int qtdK235;
     private int qtdK200;
@@ -72,6 +73,18 @@ public class BlocoKResult {
 
     public void setInsumosIgnorados(int insumosIgnorados) {
         this.insumosIgnorados = insumosIgnorados;
+    }
+
+    public List<InsumoIgnorado> getInsumosIgnoradosLista() {
+        return insumosIgnoradosLista;
+    }
+
+    public void addInsumoIgnorado(InsumoIgnorado insumo) {
+        if (insumo != null) {
+            insumo.setNumero(insumosIgnoradosLista.size() + 1);
+            insumosIgnoradosLista.add(insumo);
+            insumosIgnorados = insumosIgnoradosLista.size();
+        }
     }
 
     public int totalLinhas() {

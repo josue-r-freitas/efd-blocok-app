@@ -11,10 +11,14 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.Normalizer;
 import java.time.LocalDate;
+import java.time.Month;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -31,11 +35,7 @@ public class InsumoReader {
         IOUtils.setByteArrayMaxOverride(500_000_000);
     }
 
-    public List<InsumoConsumo> read(Path path) throws Exception {
-        return read(path, null);
-    }
-
-    public List<InsumoConsumo> read(Path path, Consumer<String> progress) throws Exception {
+    public List<InsumoConsumo> read(Path path, Consumer<String> progress, LocalDate inicio, LocalDate fim) throws Exception {
         Path temp = Path.of(System.getProperty("java.io.tmpdir"),
                 "efd_insumos_" + System.currentTimeMillis() + ".xlsx");
         if (progress != null) progress.accept("Copiando planilha de insumos...");
@@ -45,33 +45,51 @@ public class InsumoReader {
             if (progress != null) progress.accept("Lendo shared strings...");
             List<String> shared = readSharedStrings(zip, progress);
             Map<String, String> sheets = readWorkbookSheets(zip);
-
-            String target = null;
-            for (Map.Entry<String, String> e : sheets.entrySet()) {
-                // Prefer first sheet (Planilha1 / Metrics) for MOVIMENTO
-                if (target == null) target = e.getValue();
-                String n = e.getKey().toLowerCase(Locale.ROOT);
-                if (n.contains("planilha1") || n.contains("movimento") || n.contains("metrics")) {
-                    target = e.getValue();
-                    break;
-                }
-            }
-            // workbook sheet order may not preserve insertion; try sheet1.xml explicitly
-            if (zip.getEntry("xl/worksheets/sheet1.xml") != null) {
-                target = "xl/worksheets/sheet1.xml";
-            }
-            if (target == null) {
+            if (sheets.isEmpty()) {
                 throw new IllegalArgumentException("Nenhuma planilha encontrada no arquivo de insumos.");
             }
 
-            if (progress != null) progress.accept("Lendo aba de insumos...");
-            List<InsumoConsumo> result = parseSheet(zip, target, shared, progress);
-            if (result.isEmpty()) {
-                throw new IllegalArgumentException(
-                        "Nenhum insumo encontrado. Verifique colunas Load, VIN Number, PartNumber, Quantity.");
+            Map<String, InsumoConsumo> agregados = new LinkedHashMap<>();
+            int abasLidas = 0;
+            List<String> abasDoPeriodo = new ArrayList<>();
+            for (String nome : sheets.keySet()) {
+                Month mes = mesDaAba(nome);
+                if (mes != null && (inicio == null || fim == null || mesNoPeriodo(mes, inicio, fim))) {
+                    abasDoPeriodo.add(nome);
+                } else if (mes != null && progress != null) {
+                    progress.accept("Aba fora do período, ignorada: " + nome);
+                }
             }
-            if (progress != null) progress.accept("Insumos carregados: " + result.size());
-            return result;
+            if (progress != null && !abasDoPeriodo.isEmpty()) {
+                progress.accept("Abas do período (" + abasDoPeriodo.size() + "): " + String.join(", ", abasDoPeriodo));
+            }
+            for (Map.Entry<String, String> sheet : sheets.entrySet()) {
+                Month mes = mesDaAba(sheet.getKey());
+                boolean abaMensal = mes != null;
+                if (abaMensal && !abasDoPeriodo.contains(sheet.getKey())) {
+                    continue;
+                }
+                if (progress != null) {
+                    progress.accept("Lendo aba de insumos: " + sheet.getKey());
+                }
+                boolean filtrarData = inicio != null && fim != null && !abaMensal;
+                int linhas = parseSheet(zip, sheet.getValue(), shared, agregados, progress, inicio, fim, filtrarData);
+                if (linhas >= 0) {
+                    abasLidas++;
+                    if (progress != null) {
+                        progress.accept(sheet.getKey() + ": " + linhas + " linhas; agregados: " + agregados.size());
+                    }
+                }
+            }
+            if (abasLidas == 0 || agregados.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Nenhum insumo no período " + inicio + " a " + fim
+                                + ". Verifique as abas do mês e as colunas VIN NUMBER, Part Number e Quantity.");
+            }
+            if (progress != null) {
+                progress.accept("Insumos agregados por VIN e Part Number: " + agregados.size());
+            }
+            return new ArrayList<>(agregados.values());
         } finally {
             try { Files.deleteIfExists(temp); } catch (Exception ignored) {}
         }
@@ -112,7 +130,7 @@ public class InsumoReader {
     }
 
     private Map<String, String> readWorkbookSheets(ZipFile zip) throws Exception {
-        Map<String, String> ridToName = new HashMap<>();
+        Map<String, String> ridToName = new LinkedHashMap<>();
         ZipEntry wb = zip.getEntry("xl/workbook.xml");
         try (InputStream in = zip.getInputStream(wb)) {
             XMLStreamReader r = XMLInputFactory.newInstance().createXMLStreamReader(in);
@@ -128,7 +146,7 @@ public class InsumoReader {
             }
             r.close();
         }
-        Map<String, String> nameToPath = new HashMap<>();
+        Map<String, String> nameToPath = new LinkedHashMap<>();
         ZipEntry rels = zip.getEntry("xl/_rels/workbook.xml.rels");
         try (InputStream in = zip.getInputStream(rels)) {
             XMLStreamReader r = XMLInputFactory.newInstance().createXMLStreamReader(in);
@@ -147,14 +165,19 @@ public class InsumoReader {
         return nameToPath;
     }
 
-    private List<InsumoConsumo> parseSheet(ZipFile zip, String sheetPath, List<String> shared,
-                                           Consumer<String> progress) throws Exception {
+    /**
+     * @return linhas de insumo aceitas, ou -1 se a aba não tem o cabeçalho esperado
+     */
+    private int parseSheet(ZipFile zip, String sheetPath, List<String> shared,
+                           Map<String, InsumoConsumo> agregados, Consumer<String> progress,
+                           LocalDate inicio, LocalDate fim, boolean filtrarData) throws Exception {
         ZipEntry entry = zip.getEntry(sheetPath);
-        if (entry == null) return List.of();
+        if (entry == null) return -1;
 
         Map<String, Integer> cols = new HashMap<>();
+        Map<Integer, String> tipos = new HashMap<>();
         boolean headerDone = false;
-        List<InsumoConsumo> result = new ArrayList<>();
+        int linhas = 0;
         Map<Integer, String> rowCells = new HashMap<>();
 
         try (InputStream in = zip.getInputStream(entry)) {
@@ -193,6 +216,7 @@ public class InsumoReader {
                                 value = idx >= 0 && idx < shared.size() ? shared.get(idx) : raw;
                             }
                             rowCells.put(col, value);
+                            tipos.put(col, cellType);
                         }
                     } else if ("c".equals(local)) {
                         cellRef = null;
@@ -203,24 +227,40 @@ public class InsumoReader {
                             headerDone = true;
                             if (!(cols.containsKey("part") && cols.containsKey("qty") && cols.containsKey("vin"))) {
                                 r.close();
-                                return List.of();
+                                return -1;
                             }
                         } else {
-                            InsumoConsumo item = toInsumo(rowCells, cols);
+                            InsumoConsumo item = toInsumo(rowCells, tipos, cols, inicio, fim, filtrarData);
                             if (item != null) {
-                                result.add(item);
-                                if (progress != null && result.size() % 100000 == 0) {
-                                    progress.accept("Insumos lidos: " + result.size());
+                                acumular(agregados, item);
+                                linhas++;
+                                if (progress != null && linhas % 100000 == 0) {
+                                    progress.accept("Insumos lidos nesta aba: " + linhas);
                                 }
                             }
                         }
                         rowCells.clear();
+                        tipos.clear();
                     }
                 }
             }
             r.close();
         }
-        return result;
+        return headerDone ? linhas : -1;
+    }
+
+    private void acumular(Map<String, InsumoConsumo> agregados, InsumoConsumo item) {
+        String chave = item.getVin().trim() + "\u0000" + item.getPartNumber().trim();
+        InsumoConsumo existente = agregados.get(chave);
+        if (existente == null) {
+            agregados.put(chave, item);
+            return;
+        }
+        existente.setQuantity(existente.getQuantity().add(item.getQuantity()));
+        if ((existente.getDescription() == null || existente.getDescription().isBlank())
+                && item.getDescription() != null) {
+            existente.setDescription(item.getDescription());
+        }
     }
 
     private void mapHeader(Map<Integer, String> cells, Map<String, Integer> cols) {
@@ -228,7 +268,6 @@ public class InsumoReader {
             String h = e.getValue() == null ? "" : e.getValue().trim().toLowerCase(Locale.ROOT);
             int idx = e.getKey();
             if (h.equals("entry date") || h.equals("entrydate")) cols.put("entry", idx);
-            else if (h.equals("load")) cols.put("load", idx);
             else if (h.equals("vin number") || h.equals("vin") || h.equals("vinnumber")) cols.put("vin", idx);
             else if (h.equals("partnumber") || h.equals("part number")) cols.put("part", idx);
             else if (h.equals("description") || h.equals("descricao") || h.equals("descrição")) cols.put("desc", idx);
@@ -239,23 +278,87 @@ public class InsumoReader {
         }
     }
 
-    private InsumoConsumo toInsumo(Map<Integer, String> cells, Map<String, Integer> cols) {
-        String part = get(cells, cols, "part");
+    private InsumoConsumo toInsumo(Map<Integer, String> cells, Map<Integer, String> tipos, Map<String, Integer> cols,
+                                  LocalDate inicio, LocalDate fim, boolean filtrarData) {
+        Integer partIdx = cols.get("part");
+        String part = normalizarPartNumber(get(cells, cols, "part"), partIdx == null ? null : tipos.get(partIdx));
         BigDecimal qty = parseDecimal(get(cells, cols, "qty"));
-        if (part == null || part.isBlank() || qty == null || qty.signum() <= 0) {
+        String vin = get(cells, cols, "vin");
+        if (part == null || part.isBlank() || vin == null || vin.isBlank() || qty == null || qty.signum() <= 0) {
             return null;
         }
         InsumoConsumo item = new InsumoConsumo();
         item.setEntryDate(parseDate(get(cells, cols, "entry")));
-        item.setLoad(get(cells, cols, "load"));
-        item.setVin(get(cells, cols, "vin"));
+        item.setVin(vin.trim());
         item.setPartNumber(part);
         item.setDescription(get(cells, cols, "desc"));
         item.setQuantity(qty);
         item.setDate(parseDate(get(cells, cols, "date")));
+        if (filtrarData) {
+            LocalDate data = item.dataConsumo();
+            if (data == null || data.isBefore(inicio) || data.isAfter(fim)) {
+                return null;
+            }
+        }
         item.setUnitPrice(parseDecimal(get(cells, cols, "unit")));
         item.setTotalPrice(parseDecimal(get(cells, cols, "total")));
         return item;
+    }
+
+    /**
+     * Identifica o mês da aba mesmo quando ele está dividido em partes,
+     * como "MOV. PRD - MAIO (1)", "MAIO (2)" ou "SETEMBRO - PARTE 2".
+     */
+    static Month mesDaAba(String nome) {
+        if (nome == null || nome.isBlank()) {
+            return null;
+        }
+        String n = Normalizer.normalize(nome, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase(Locale.ROOT);
+        n = n.replaceAll("\\(\\s*\\d+\\s*\\)", " ");
+        n = n.replaceAll("\\bpart(?:e)?\\s*\\d+\\b", " ");
+        n = n.replaceAll("[-_/]\\s*\\d+\\b", " ");
+        Month[] meses = Month.values();
+        String[] nomes = {
+                "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
+                "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
+        };
+        for (int i = 0; i < nomes.length; i++) {
+            if (n.matches(".*(?<![a-z])" + nomes[i] + "(?![a-z]).*")) {
+                return meses[i];
+            }
+        }
+        return null;
+    }
+
+    private static boolean mesNoPeriodo(Month mes, LocalDate inicio, LocalDate fim) {
+        YearMonth de = YearMonth.from(inicio);
+        YearMonth ate = YearMonth.from(fim);
+        for (int ano = inicio.getYear(); ano <= fim.getYear(); ano++) {
+            YearMonth ym = YearMonth.of(ano, mes);
+            if (!ym.isBefore(de) && !ym.isAfter(ate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String normalizarPartNumber(String text, String cellType) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        String valor = text.trim();
+        if ("s".equals(cellType) || "inlineStr".equals(cellType) || "str".equals(cellType)) {
+            return valor;
+        }
+        if (valor.matches("[-+]?\\d+(\\.\\d+)?([eE][-+]?\\d+)?")) {
+            try {
+                return new BigDecimal(valor).stripTrailingZeros().toPlainString();
+            } catch (Exception ignored) {
+            }
+        }
+        return valor;
     }
 
     private String get(Map<Integer, String> cells, Map<String, Integer> cols, String key) {

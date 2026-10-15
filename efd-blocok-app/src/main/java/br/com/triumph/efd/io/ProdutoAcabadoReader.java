@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -30,7 +31,7 @@ public class ProdutoAcabadoReader {
         IOUtils.setByteArrayMaxOverride(500_000_000);
     }
 
-    public List<ProdutoAcabado> read(Path path) throws Exception {
+    public List<ProdutoAcabado> read(Path path, LocalDate inicio, LocalDate fim) throws Exception {
         Path temp = Path.of(System.getProperty("java.io.tmpdir"),
                 "efd_produtos_" + System.currentTimeMillis() + ".xlsx");
         Files.copy(path, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
@@ -53,18 +54,11 @@ public class ProdutoAcabadoReader {
                 throw new IllegalArgumentException("Nenhuma planilha encontrada no arquivo de produtos.");
             }
 
-            List<ProdutoAcabado> result = parseSheet(zip, targetPath, shared);
-            if (result.isEmpty()) {
-                // tenta outras abas
-                for (String sheetPath : sheetMap.values()) {
-                    if (sheetPath.equals(targetPath)) continue;
-                    result = parseSheet(zip, sheetPath, shared);
-                    if (!result.isEmpty()) break;
-                }
-            }
+            List<ProdutoAcabado> result = parseSheet(zip, targetPath, shared, inicio, fim);
             if (result.isEmpty()) {
                 throw new IllegalArgumentException(
-                        "Nenhum produto acabado encontrado. Verifique colunas Vin / Model code / Date.");
+                        "Nenhum produto acabado no período " + inicio + " a " + fim
+                                + ". Verifique colunas Vin, Model code e Date.");
             }
             return result;
         } finally {
@@ -104,7 +98,7 @@ public class ProdutoAcabadoReader {
     }
 
     private Map<String, String> readWorkbookSheets(ZipFile zip) throws Exception {
-        Map<String, String> ridToName = new HashMap<>();
+        Map<String, String> ridToName = new LinkedHashMap<>();
         ZipEntry wb = zip.getEntry("xl/workbook.xml");
         try (InputStream in = zip.getInputStream(wb)) {
             XMLStreamReader r = XMLInputFactory.newInstance().createXMLStreamReader(in);
@@ -123,7 +117,7 @@ public class ProdutoAcabadoReader {
             r.close();
         }
 
-        Map<String, String> nameToPath = new HashMap<>();
+        Map<String, String> nameToPath = new LinkedHashMap<>();
         ZipEntry rels = zip.getEntry("xl/_rels/workbook.xml.rels");
         try (InputStream in = zip.getInputStream(rels)) {
             XMLStreamReader r = XMLInputFactory.newInstance().createXMLStreamReader(in);
@@ -143,12 +137,12 @@ public class ProdutoAcabadoReader {
         return nameToPath;
     }
 
-    private List<ProdutoAcabado> parseSheet(ZipFile zip, String sheetPath, List<String> shared) throws Exception {
+    private List<ProdutoAcabado> parseSheet(ZipFile zip, String sheetPath, List<String> shared,
+                                            LocalDate inicio, LocalDate fim) throws Exception {
         ZipEntry entry = zip.getEntry(sheetPath);
         if (entry == null) return List.of();
 
         Map<String, Integer> cols = new HashMap<>();
-        Integer loadCol = null;
         boolean headerDone = false;
         List<ProdutoAcabado> result = new ArrayList<>();
         Map<Integer, String> rowCells = new HashMap<>();
@@ -202,17 +196,8 @@ public class ProdutoAcabadoReader {
                                 return List.of();
                             }
                         } else {
-                            if (loadCol == null && !cols.containsKey("load")) {
-                                for (Map.Entry<Integer, String> e : rowCells.entrySet()) {
-                                    if (e.getValue() != null && e.getValue().matches("5SH\\d+")) {
-                                        loadCol = e.getKey();
-                                        cols.put("load", loadCol);
-                                        break;
-                                    }
-                                }
-                            }
                             ProdutoAcabado p = toProduto(rowCells, cols);
-                            if (p != null) result.add(p);
+                            if (p != null && noPeriodo(p.getData(), inicio, fim)) result.add(p);
                         }
                         rowCells.clear();
                     }
@@ -235,7 +220,6 @@ public class ProdutoAcabadoReader {
             else if (h.equals("model code") || h.equals("modelcode")) cols.put("model", idx);
             else if (h.equals("model description") || h.equals("modeldescription")) cols.put("desc", idx);
             else if (h.equals("colour") || h.equals("color")) cols.put("colour", idx);
-            else if (h.equals("load")) cols.put("load", idx);
             else if (h.equals("cost")) cols.put("cost", idx);
             else if (h.equals("sales")) cols.put("sales", idx);
         }
@@ -256,10 +240,16 @@ public class ProdutoAcabadoReader {
         p.setModelCode(model);
         p.setModelDescription(get(cells, cols, "desc"));
         p.setColour(get(cells, cols, "colour"));
-        p.setLoad(get(cells, cols, "load"));
         p.setCost(parseDecimal(get(cells, cols, "cost")));
         p.setSales(parseDecimal(get(cells, cols, "sales")));
         return p;
+    }
+
+    private static boolean noPeriodo(LocalDate data, LocalDate inicio, LocalDate fim) {
+        if (inicio == null || fim == null) {
+            return true;
+        }
+        return data != null && !data.isBefore(inicio) && !data.isAfter(fim);
     }
 
     private String get(Map<Integer, String> cells, Map<String, Integer> cols, String key) {

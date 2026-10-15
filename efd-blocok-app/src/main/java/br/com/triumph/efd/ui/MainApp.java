@@ -2,6 +2,7 @@ package br.com.triumph.efd.ui;
 
 import br.com.triumph.efd.model.BlocoKResult;
 import br.com.triumph.efd.model.EfdFile;
+import br.com.triumph.efd.model.Registro0200Result;
 import br.com.triumph.efd.service.EfdBlocoKService;
 
 import javax.swing.BorderFactory;
@@ -38,11 +39,15 @@ public class MainApp extends JFrame {
     private final JTextField txtProdutos = new JTextField();
     private final JTextField txtInsumos = new JTextField();
     private final JCheckBox chkPreservarK200 = new JCheckBox("Preservar estoque K200 do EFD atual", true);
+    private final JCheckBox chkIncluirBlocoK = new JCheckBox("Incluir Bloco K no novo EFD", true);
+    private final JCheckBox chkIncluir0200 = new JCheckBox("Incluir 0200 gerados no novo EFD", true);
     private final JTextArea log = new JTextArea();
     private final JProgressBar progress = new JProgressBar();
     private final JLabel status = new JLabel("Aguardando arquivos...");
     private final JTabbedPane tabs = new JTabbedPane();
     private final BlocoKViewerPanel viewerPanel = new BlocoKViewerPanel();
+    private final InsumosIgnoradosPanel insumosIgnoradosPanel = new InsumosIgnoradosPanel();
+    private final Registro0200Panel registro0200Panel = new Registro0200Panel();
 
     private final JButton btnImportarEfd = new JButton("1. Importar EFD");
     private final JButton btnImportarProdutos = new JButton("2. Produtos Acabados");
@@ -55,7 +60,7 @@ public class MainApp extends JFrame {
     public MainApp() {
         super("EFD Bloco K — Triumph Manaus");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setMinimumSize(new Dimension(1024, 720));
+        setMinimumSize(new Dimension(1100, 760));
         setLocationRelativeTo(null);
         buildUi();
         wireEvents();
@@ -80,12 +85,21 @@ public class MainApp extends JFrame {
         gc.gridx = 0; gc.gridy = 3; gc.gridwidth = 3; gc.weightx = 1;
         form.add(chkPreservarK200, gc);
 
+        JPanel opcoesEfd = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 2));
+        opcoesEfd.setBorder(BorderFactory.createTitledBorder("Opções do novo EFD"));
+        opcoesEfd.add(chkIncluirBlocoK);
+        opcoesEfd.add(chkIncluir0200);
+
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
         actions.setBorder(BorderFactory.createTitledBorder("Processamento"));
         actions.add(btnGerarBlocoK);
         actions.add(btnSalvarBlocoK);
         actions.add(btnGerarNovoEfd);
         actions.add(btnSalvarEfd);
+
+        JPanel mid = new JPanel(new BorderLayout(4, 4));
+        mid.add(opcoesEfd, BorderLayout.NORTH);
+        mid.add(actions, BorderLayout.SOUTH);
 
         log.setEditable(false);
         log.setLineWrap(true);
@@ -95,6 +109,8 @@ public class MainApp extends JFrame {
 
         tabs.addTab("Log", logScroll);
         tabs.addTab("Bloco K gerado", viewerPanel);
+        tabs.addTab("Insumos ignorados", insumosIgnoradosPanel);
+        tabs.addTab("0200 gerados", registro0200Panel);
 
         progress.setStringPainted(true);
         progress.setIndeterminate(false);
@@ -105,7 +121,7 @@ public class MainApp extends JFrame {
 
         JPanel north = new JPanel(new BorderLayout(8, 8));
         north.add(form, BorderLayout.CENTER);
-        north.add(actions, BorderLayout.SOUTH);
+        north.add(mid, BorderLayout.SOUTH);
 
         root.add(north, BorderLayout.NORTH);
         root.add(tabs, BorderLayout.CENTER);
@@ -126,18 +142,33 @@ public class MainApp extends JFrame {
     }
 
     private void wireEvents() {
+        insumosIgnoradosPanel.setOnGerar0200(this::gerarRegistros0200);
+
+        chkIncluirBlocoK.addActionListener(e -> setButtonsState());
+        chkIncluir0200.addActionListener(e -> setButtonsState());
+
         btnImportarEfd.addActionListener(e -> escolherArquivo(
                 "Selecionar EFD",
                 new FileNameExtensionFilter("EFD / Texto (*.txt)", "txt"),
                 file -> runAsync("Importando EFD...", () -> {
                     EfdFile efd = service.importarEfd(file.toPath());
                     SwingUtilities.invokeLater(() -> {
+                        boolean tinhaPlanilha = !txtProdutos.getText().isBlank() || !txtInsumos.getText().isBlank();
                         txtEfd.setText(file.getAbsolutePath());
+                        txtProdutos.setText("");
+                        txtInsumos.setText("");
+                        viewerPanel.limpar();
+                        insumosIgnoradosPanel.limpar();
+                        registro0200Panel.limpar();
                         appendLog("EFD importado: " + efd.getNomeEmpresa()
                                 + " | CNPJ " + efd.getCnpj()
                                 + " | Período " + efd.getDataInicial() + " a " + efd.getDataFinal()
                                 + " | Linhas " + efd.size()
                                 + " | Itens 0200: " + efd.getCodigos0200().size());
+                        if (tinhaPlanilha) {
+                            appendLog("Planilhas anteriores descartadas. Importe de novo produtos e insumos; a leitura fica limitada a "
+                                    + efd.getDataInicial() + " a " + efd.getDataFinal() + ".");
+                        }
                         setButtonsState();
                     });
                 })));
@@ -149,7 +180,7 @@ public class MainApp extends JFrame {
                     var produtos = service.importarProdutos(file.toPath());
                     SwingUtilities.invokeLater(() -> {
                         txtProdutos.setText(file.getAbsolutePath());
-                        appendLog("Produtos acabados importados: " + produtos.size());
+                        appendLog("Produtos acabados no período: " + produtos.size());
                         setButtonsState();
                     });
                 })));
@@ -161,35 +192,14 @@ public class MainApp extends JFrame {
                     var insumos = service.importarInsumos(file.toPath(), this::appendLogSafe);
                     SwingUtilities.invokeLater(() -> {
                         txtInsumos.setText(file.getAbsolutePath());
-                        appendLog("Insumos importados: " + insumos.size());
+                        appendLog("Insumos no período: " + insumos.size());
                         setButtonsState();
                     });
                 })));
 
         btnGerarBlocoK.addActionListener(e -> runAsync("Gerando Bloco K...", () -> {
             BlocoKResult r = service.gerarBlocoK(chkPreservarK200.isSelected(), this::appendLogSafe);
-            SwingUtilities.invokeLater(() -> {
-                appendLog("=== Bloco K gerado ===");
-                appendLog("Linhas: " + r.totalLinhas());
-                appendLog("K230 (itens produzidos): " + r.getQtdK230());
-                appendLog("K235 (insumos consumidos): " + r.getQtdK235());
-                appendLog("K200 preservados: " + r.getQtdK200());
-                appendLog("Insumos ignorados (sem 0200): " + r.getInsumosIgnorados());
-                if (!r.getAvisos().isEmpty()) {
-                    appendLog("Avisos (" + r.getAvisos().size() + "):");
-                    int max = Math.min(30, r.getAvisos().size());
-                    for (int i = 0; i < max; i++) {
-                        appendLog("  - " + r.getAvisos().get(i));
-                    }
-                    if (r.getAvisos().size() > max) {
-                        appendLog("  ... +" + (r.getAvisos().size() - max) + " avisos");
-                    }
-                }
-                appendLog("Abra a aba 'Bloco K gerado' para visualizar e exportar as linhas.");
-                viewerPanel.carregar(r);
-                tabs.setSelectedIndex(1);
-                setButtonsState();
-            });
+            SwingUtilities.invokeLater(() -> onBlocoKGerado(r, false));
         }));
 
         btnSalvarBlocoK.addActionListener(e -> {
@@ -201,13 +211,26 @@ public class MainApp extends JFrame {
             });
         });
 
-        btnGerarNovoEfd.addActionListener(e -> runAsync("Gerando novo EFD...", () -> {
-            List<String> novo = service.gerarNovoEfd(this::appendLogSafe);
-            SwingUtilities.invokeLater(() -> {
-                appendLog("Novo EFD gerado com " + novo.size() + " linhas.");
-                setButtonsState();
+        btnGerarNovoEfd.addActionListener(e -> {
+            boolean incluirK = chkIncluirBlocoK.isSelected();
+            boolean incluir0200 = chkIncluir0200.isSelected();
+            if (!incluirK && !incluir0200) {
+                JOptionPane.showMessageDialog(this,
+                        "Marque ao menos uma opção:\n• Incluir Bloco K\n• Incluir 0200 gerados",
+                        "Aviso", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            runAsync("Gerando novo EFD...", () -> {
+                List<String> novo = service.gerarNovoEfd(incluirK, incluir0200, this::appendLogSafe);
+                SwingUtilities.invokeLater(() -> {
+                    appendLog("=== Novo EFD gerado ===");
+                    appendLog("Linhas: " + novo.size());
+                    appendLog("Incluiu Bloco K: " + (incluirK ? "sim" : "não"));
+                    appendLog("Incluiu 0200 gerados: " + (incluir0200 ? "sim (" + service.getRegistros0200().total() + " itens)" : "não"));
+                    setButtonsState();
+                });
             });
-        }));
+        });
 
         btnSalvarEfd.addActionListener(e -> {
             File dest = escolherSalvar("Salvar novo EFD", "SpedEFD_com_BlocoK.txt", "txt");
@@ -224,16 +247,106 @@ public class MainApp extends JFrame {
         });
     }
 
+    private void gerarRegistros0200() {
+        if (service.getBlocoK() == null || service.getBlocoK().getInsumosIgnoradosLista().isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Não há insumos ignorados para gerar 0200.", "Aviso", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        runAsync("Gerando registros 0200...", () -> {
+            Registro0200Result r = service.gerarRegistros0200(this::appendLogSafe);
+            SwingUtilities.invokeLater(() -> {
+                appendLog("=== Registros 0200 gerados ===");
+                appendLog("Códigos únicos: " + r.total());
+                appendLog("UNID_INV=UNIT | TIPO_ITEM=01 (matéria-prima)");
+                registro0200Panel.carregar(r);
+                chkIncluir0200.setSelected(true);
+                tabs.setSelectedIndex(3);
+                setButtonsState();
+
+                int opcao = JOptionPane.showConfirmDialog(this,
+                        "Foram gerados " + r.total() + " registros 0200.\n\n"
+                                + "Deseja regenerar o Bloco K agora para incluir estes insumos no K235?",
+                        "Regenerar Bloco K?",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
+                if (opcao == JOptionPane.YES_OPTION) {
+                    regenerarBlocoKApos0200();
+                } else {
+                    appendLog("Dica: regenere o Bloco K (botão 4) para que os novos 0200 entrem no K235.");
+                }
+            });
+        });
+    }
+
+    private void regenerarBlocoKApos0200() {
+        runAsync("Regenerando Bloco K com novos 0200...", () -> {
+            BlocoKResult r = service.gerarBlocoK(chkPreservarK200.isSelected(), this::appendLogSafe);
+            SwingUtilities.invokeLater(() -> onBlocoKGerado(r, true));
+        });
+    }
+
+    private void onBlocoKGerado(BlocoKResult r, boolean apos0200) {
+        appendLog(apos0200 ? "=== Bloco K regenerado (com 0200 novos) ===" : "=== Bloco K gerado ===");
+        appendLog("Linhas: " + r.totalLinhas());
+        appendLog("K230 (itens produzidos): " + r.getQtdK230());
+        appendLog("K235 (insumos consumidos): " + r.getQtdK235());
+        appendLog("K200 preservados: " + r.getQtdK200());
+        appendLog("Insumos ignorados (sem 0200): " + r.getInsumosIgnorados());
+        if (r.getInsumosIgnorados() > 0) {
+            appendLog("Use a aba 'Insumos ignorados' → botão 'Gerar registros 0200'.");
+        }
+        if (!r.getAvisos().isEmpty()) {
+            appendLog("Avisos (" + r.getAvisos().size() + "):");
+            int max = Math.min(30, r.getAvisos().size());
+            for (int i = 0; i < max; i++) {
+                appendLog("  - " + r.getAvisos().get(i));
+            }
+            if (r.getAvisos().size() > max) {
+                appendLog("  ... +" + (r.getAvisos().size() - max) + " avisos");
+            }
+        }
+        viewerPanel.carregar(r, service.getProdutos(), service.getInsumos());
+        insumosIgnoradosPanel.carregar(r);
+        chkIncluirBlocoK.setSelected(true);
+        if (apos0200) {
+            tabs.setSelectedIndex(1);
+        } else {
+            tabs.setSelectedIndex(r.getInsumosIgnorados() > 0 ? 2 : 1);
+        }
+        setButtonsState();
+    }
+
     private void setButtonsState() {
         boolean hasEfd = service.getEfdAtual() != null;
         boolean hasProd = service.getProdutos() != null && !service.getProdutos().isEmpty();
         boolean hasIns = service.getInsumos() != null && !service.getInsumos().isEmpty();
         boolean hasK = service.getBlocoK() != null;
+        boolean has0200 = service.getRegistros0200() != null && !service.getRegistros0200().isEmpty();
         boolean hasNovo = service.getNovoEfd() != null;
 
+        if (hasK) {
+            chkIncluirBlocoK.setEnabled(true);
+        } else {
+            chkIncluirBlocoK.setEnabled(false);
+            chkIncluirBlocoK.setSelected(false);
+        }
+        if (has0200) {
+            chkIncluir0200.setEnabled(true);
+        } else {
+            chkIncluir0200.setEnabled(false);
+            chkIncluir0200.setSelected(false);
+        }
+
+        boolean podeGerarEfd = (chkIncluirBlocoK.isSelected() && hasK)
+                || (chkIncluir0200.isSelected() && has0200);
+
+        btnImportarProdutos.setEnabled(hasEfd);
+        btnImportarInsumos.setEnabled(hasEfd);
         btnGerarBlocoK.setEnabled(hasEfd && hasProd && hasIns);
         btnSalvarBlocoK.setEnabled(hasK);
-        btnGerarNovoEfd.setEnabled(hasK);
+        btnGerarNovoEfd.setEnabled(podeGerarEfd);
         btnSalvarEfd.setEnabled(hasNovo);
     }
 
@@ -288,13 +401,15 @@ public class MainApp extends JFrame {
         progress.setString(message);
         status.setText(message);
         btnImportarEfd.setEnabled(!busy);
-        btnImportarProdutos.setEnabled(!busy);
-        btnImportarInsumos.setEnabled(!busy);
         if (busy) {
+            btnImportarProdutos.setEnabled(false);
+            btnImportarInsumos.setEnabled(false);
             btnGerarBlocoK.setEnabled(false);
             btnGerarNovoEfd.setEnabled(false);
             btnSalvarBlocoK.setEnabled(false);
             btnSalvarEfd.setEnabled(false);
+            chkIncluirBlocoK.setEnabled(false);
+            chkIncluir0200.setEnabled(false);
         }
     }
 
@@ -327,7 +442,7 @@ public class MainApp extends JFrame {
             MainApp app = new MainApp();
             app.setVisible(true);
             app.appendLog("Aplicação iniciada. Importe o EFD e as duas planilhas para gerar o Bloco K.");
-            app.appendLog("Após gerar, use a aba 'Bloco K gerado' para visualizar e exportar (TXT, CSV, Excel).");
+            app.appendLog("Fluxo: Gerar Bloco K → Insumos ignorados → Gerar 0200 → (opcional) regenerar K → Gerar Novo EFD.");
         });
     }
 }

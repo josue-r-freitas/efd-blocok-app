@@ -109,6 +109,36 @@ public class EfdFile {
         return null;
     }
 
+    /**
+     * Registra um item 0200 em memória (ex.: gerado a partir de insumos ignorados),
+     * para que a regeneração do Bloco K possa resolvê-lo.
+     */
+    public void registrarItem0200(String codigo, String descricao) {
+        if (codigo == null || codigo.isBlank()) {
+            return;
+        }
+        String cod = codigo.trim();
+        codigos0200.add(cod);
+        descricao0200.put(cod, descricao == null ? "" : descricao.trim());
+    }
+
+    public boolean possuiUnidade0190(String unidade) {
+        if (unidade == null || unidade.isBlank()) {
+            return false;
+        }
+        String alvo = unidade.trim();
+        for (String line : lines) {
+            if (!line.startsWith("|0190|")) {
+                continue;
+            }
+            String[] f = line.split("\\|", -1);
+            if (f.length > 2 && alvo.equalsIgnoreCase(f[2] == null ? "" : f[2].trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public int size() {
         return lines.size();
     }

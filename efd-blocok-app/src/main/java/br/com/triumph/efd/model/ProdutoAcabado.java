@@ -106,13 +106,7 @@ public class ProdutoAcabado {
     }
 
     public String chaveProducao() {
-        if (load != null && !load.isBlank()) {
-            return load.trim();
-        }
-        if (vin != null && !vin.isBlank()) {
-            return vin.trim();
-        }
-        return fullVin == null ? "" : fullVin.trim();
+        return vin == null ? "" : vin.trim();
     }
 
     public String codigoItem() {
