@@ -76,7 +76,7 @@ public class EfdBlocoKService {
      * Gera registros 0200 a partir dos insumos ignorados do último Bloco K.
      * Os códigos passam a ser reconhecidos pelo EFD em memória.
      */
-    public Registro0200Result gerarRegistros0200(Consumer<String> progress) {
+    public Registro0200Result gerarRegistros0200(Path listagem, Consumer<String> progress) {
         if (efdAtual == null) {
             throw new IllegalStateException("Importe o EFD atual primeiro.");
         }
@@ -86,7 +86,7 @@ public class EfdBlocoKService {
 
         try {
             registros0200 = registro0200Generator.gerar(
-                    blocoK.getInsumosIgnoradosLista(), efdAtual, progress);
+                    blocoK.getInsumosIgnoradosLista(), efdAtual, listagem, progress);
         } catch (RuntimeException ex) {
             throw ex;
         } catch (Exception ex) {

@@ -42,7 +42,7 @@ mvn -q exec:java -Dexec.mainClass=br.com.triumph.efd.ui.MainApp
 4. **Gerar Bloco K** — monta `K001`, `K010`, `K100`, `K200` (opcional), `K230`, `K235`, `K990`
 5. **Aba "Bloco K gerado"** — visualizar linhas com filtro por registro, busca e paginação. O botão **Relatório de validação** gera uma planilha para conferir K230 e K235 com os produtos e insumos do período
 6. **Exportar** — baixar em **TXT**, **CSV** ou **Excel (.xlsx)** com abas Resumo, K230, K235, K200 e Todas
-7. **Aba "Insumos ignorados"** — visualizar, exportar e **gerar registros 0200**. Cada PartNumber é localizado na coluna `COD_ITEM` de `TRIUMPH/Registro 0200_Listagen Itens PPB_TRIUMPH MN.xlsx`, e o 0200 sai com os dados dessa linha
+7. **Aba "Insumos ignorados"** — visualizar, exportar e **gerar registros 0200**. A planilha da listagem é informada nessa aba. Cada PartNumber é localizado na coluna `COD_ITEM`, e o 0200 sai com os dados dessa linha
 8. **Aba "0200 gerados"** — visualizar e exportar os 0200 criados (opcional regenerar Bloco K para incluir no K235)
 9. **Gerar Novo EFD** — opções (marcadas por padrão):
    - Incluir Bloco K (se gerado)

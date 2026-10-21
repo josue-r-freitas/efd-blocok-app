@@ -29,6 +29,8 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 public class MainApp extends JFrame {
@@ -253,11 +255,19 @@ public class MainApp extends JFrame {
                     "Não há insumos ignorados para gerar 0200.", "Aviso", JOptionPane.WARNING_MESSAGE);
             return;
         }
+        Path listagem = insumosIgnoradosPanel.getArquivoListagem0200();
+        if (listagem == null || !Files.isRegularFile(listagem)) {
+            JOptionPane.showMessageDialog(this,
+                    "Informe a planilha da listagem 0200 antes de gerar.",
+                    "Aviso", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
 
         runAsync("Gerando registros 0200...", () -> {
-            Registro0200Result r = service.gerarRegistros0200(this::appendLogSafe);
+            Registro0200Result r = service.gerarRegistros0200(listagem, this::appendLogSafe);
             SwingUtilities.invokeLater(() -> {
                 appendLog("=== Registros 0200 gerados ===");
+                appendLog("Listagem: " + listagem);
                 appendLog("Códigos encontrados na listagem PPB: " + r.total());
                 if (!r.getNaoEncontrados().isEmpty()) {
                     appendLog("PartNumbers sem linha em COD_ITEM: " + r.getNaoEncontrados().size());
@@ -375,10 +385,12 @@ public class MainApp extends JFrame {
     }
 
     private void escolherArquivo(String title, FileNameExtensionFilter filter, FileConsumer consumer) {
-        JFileChooser chooser = new JFileChooser(new File("c:\\trabalhos\\EFD-blocok"));
+        JFileChooser chooser = new JFileChooser(PastaRecente.atual());
         chooser.setDialogTitle(title);
         chooser.setFileFilter(filter);
-        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+        int opcao = chooser.showOpenDialog(this);
+        PastaRecente.lembrar(chooser);
+        if (opcao == JFileChooser.APPROVE_OPTION) {
             consumer.accept(chooser.getSelectedFile());
         }
     }

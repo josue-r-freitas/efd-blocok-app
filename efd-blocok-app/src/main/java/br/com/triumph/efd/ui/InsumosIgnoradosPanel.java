@@ -1,6 +1,7 @@
 package br.com.triumph.efd.ui;
 
 import br.com.triumph.efd.io.InsumosIgnoradosExportService;
+import br.com.triumph.efd.io.Registro0200CatalogoReader;
 import br.com.triumph.efd.model.BlocoKResult;
 import br.com.triumph.efd.model.InsumoIgnorado;
 
@@ -23,6 +24,8 @@ import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.awt.Window;
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +48,8 @@ public class InsumosIgnoradosPanel extends JPanel {
     private final JButton btnExportarTxt = new JButton("Exportar TXT");
     private final JButton btnExportarCsv = new JButton("Exportar CSV");
     private final JButton btnExportarXlsx = new JButton("Exportar Excel");
+    private final JTextField txtListagem0200 = new JTextField();
+    private final JButton btnSelecionarListagem = new JButton("Selecionar");
     private final JButton btnGerar0200 = new JButton("Gerar registros 0200");
     private final JLabel lblExportStatus = new JLabel(" ");
 
@@ -62,6 +67,7 @@ public class InsumosIgnoradosPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         buildUi();
         wireEvents();
+        preencherListagemPadrao();
         setEnabled(false);
     }
 
@@ -84,6 +90,13 @@ public class InsumosIgnoradosPanel extends JPanel {
         filtros.add(btnProximo);
         north.add(filtros, BorderLayout.SOUTH);
 
+        JPanel listagem = new JPanel(new BorderLayout(8, 4));
+        listagem.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
+        listagem.add(new JLabel("Listagem 0200 (.xlsx):"), BorderLayout.WEST);
+        txtListagem0200.setEditable(false);
+        listagem.add(txtListagem0200, BorderLayout.CENTER);
+        listagem.add(btnSelecionarListagem, BorderLayout.EAST);
+
         JPanel export = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         export.setBorder(BorderFactory.createTitledBorder("Ações"));
         export.add(btnGerar0200);
@@ -98,7 +111,8 @@ public class InsumosIgnoradosPanel extends JPanel {
         scroll.setBorder(BorderFactory.createTitledBorder("Insumos sem correspondente no registro 0200"));
 
         JPanel south = new JPanel(new BorderLayout());
-        south.add(export, BorderLayout.CENTER);
+        south.add(listagem, BorderLayout.NORTH);
+        south.add(export, BorderLayout.SOUTH);
 
         add(north, BorderLayout.NORTH);
         add(scroll, BorderLayout.CENTER);
@@ -127,11 +141,38 @@ public class InsumosIgnoradosPanel extends JPanel {
         btnExportarTxt.addActionListener(e -> exportar(InsumosIgnoradosExportService.Formato.TXT, "insumos_ignorados.txt", "txt"));
         btnExportarCsv.addActionListener(e -> exportar(InsumosIgnoradosExportService.Formato.CSV, "insumos_ignorados.csv", "csv"));
         btnExportarXlsx.addActionListener(e -> exportar(InsumosIgnoradosExportService.Formato.XLSX, "insumos_ignorados.xlsx", "xlsx"));
+        btnSelecionarListagem.addActionListener(e -> selecionarListagem());
         btnGerar0200.addActionListener(e -> {
             if (onGerar0200 != null) {
                 onGerar0200.run();
             }
         });
+    }
+
+    public Path getArquivoListagem0200() {
+        String texto = txtListagem0200.getText();
+        if (texto == null || texto.isBlank()) {
+            return null;
+        }
+        return Path.of(texto.trim());
+    }
+
+    private void preencherListagemPadrao() {
+        Path padrao = Registro0200CatalogoReader.ARQUIVO_PADRAO;
+        if (Files.isRegularFile(padrao)) {
+            txtListagem0200.setText(padrao.toString());
+        }
+    }
+
+    private void selecionarListagem() {
+        JFileChooser chooser = new JFileChooser(PastaRecente.atual());
+        chooser.setDialogTitle("Selecionar listagem 0200");
+        chooser.setFileFilter(new FileNameExtensionFilter("Planilha Excel (*.xlsx)", "xlsx"));
+        int opcao = chooser.showOpenDialog(this);
+        PastaRecente.lembrar(chooser);
+        if (opcao == JFileChooser.APPROVE_OPTION) {
+            txtListagem0200.setText(chooser.getSelectedFile().getAbsolutePath());
+        }
     }
 
     public void setOnGerar0200(Runnable onGerar0200) {
@@ -187,6 +228,8 @@ public class InsumosIgnoradosPanel extends JPanel {
         btnExportarCsv.setEnabled(enabled && blocoK != null && !todosInsumos.isEmpty());
         btnExportarXlsx.setEnabled(enabled && blocoK != null && !todosInsumos.isEmpty());
         btnGerar0200.setEnabled(enabled && blocoK != null && !todosInsumos.isEmpty());
+        txtListagem0200.setEnabled(true);
+        btnSelecionarListagem.setEnabled(true);
         table.setEnabled(enabled);
     }
 

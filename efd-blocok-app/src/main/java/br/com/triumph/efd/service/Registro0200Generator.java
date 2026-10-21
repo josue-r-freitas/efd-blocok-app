@@ -7,6 +7,7 @@ import br.com.triumph.efd.model.InsumoIgnorado;
 import br.com.triumph.efd.model.Registro0200Result;
 import br.com.triumph.efd.model.Registro0200Result.Registro0200Item;
 
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,12 +22,16 @@ public class Registro0200Generator {
 
     public Registro0200Result gerar(List<InsumoIgnorado> ignorados,
                                     EfdFile efd,
+                                    Path listagem,
                                     Consumer<String> progress) throws Exception {
         if (ignorados == null || ignorados.isEmpty()) {
             throw new IllegalStateException("Não há insumos ignorados para gerar registros 0200.");
         }
+        if (listagem == null) {
+            throw new IllegalStateException("Informe a planilha da listagem 0200.");
+        }
 
-        Catalogo catalogo = catalogoReader.read(Registro0200CatalogoReader.ARQUIVO_PADRAO, progress);
+        Catalogo catalogo = catalogoReader.read(listagem, progress);
 
         Map<String, InsumoIgnorado> unicos = new LinkedHashMap<>();
         for (InsumoIgnorado i : ignorados) {
