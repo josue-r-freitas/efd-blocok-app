@@ -84,14 +84,20 @@ public class EfdBlocoKService {
             throw new IllegalStateException("Não há insumos ignorados. Gere o Bloco K primeiro.");
         }
 
-        registros0200 = registro0200Generator.gerar(
-                blocoK.getInsumosIgnoradosLista(), efdAtual, progress);
+        try {
+            registros0200 = registro0200Generator.gerar(
+                    blocoK.getInsumosIgnoradosLista(), efdAtual, progress);
+        } catch (RuntimeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex.getMessage(), ex);
+        }
 
         for (Registro0200Item item : registros0200.getItens()) {
             efdAtual.registrarItem0200(item.getCodItem(), item.getDescrItem());
         }
 
-        if (progress != null) {
+        if (progress != null && registros0200.total() > 0) {
             progress.accept("Códigos 0200 registrados em memória. Regenerar o Bloco K para incluir estes insumos no K235.");
         }
         return registros0200;

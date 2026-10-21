@@ -42,7 +42,7 @@ mvn -q exec:java -Dexec.mainClass=br.com.triumph.efd.ui.MainApp
 4. **Gerar Bloco K** — monta `K001`, `K010`, `K100`, `K200` (opcional), `K230`, `K235`, `K990`
 5. **Aba "Bloco K gerado"** — visualizar linhas com filtro por registro, busca e paginação. O botão **Relatório de validação** gera uma planilha para conferir K230 e K235 com os produtos e insumos do período
 6. **Exportar** — baixar em **TXT**, **CSV** ou **Excel (.xlsx)** com abas Resumo, K230, K235, K200 e Todas
-7. **Aba "Insumos ignorados"** — visualizar, exportar e **gerar registros 0200** a partir dos PartNumbers sem cadastro
+7. **Aba "Insumos ignorados"** — visualizar, exportar e **gerar registros 0200**. Cada PartNumber é localizado na coluna `COD_ITEM` de `TRIUMPH/Registro 0200_Listagen Itens PPB_TRIUMPH MN.xlsx`, e o 0200 sai com os dados dessa linha
 8. **Aba "0200 gerados"** — visualizar e exportar os 0200 criados (opcional regenerar Bloco K para incluir no K235)
 9. **Gerar Novo EFD** — opções (marcadas por padrão):
    - Incluir Bloco K (se gerado)
@@ -63,6 +63,8 @@ mvn -q exec:java -Dexec.mainClass=br.com.triumph.efd.ui.MainApp
 - `DT_INI_OP` é a menor `Date` desse modelo no período do EFD, e `DT_FIN_OP` a maior. `QTD_ENC` é a quantidade de linhas. Em janeiro de 2023, `CN7` fica de 02/01/2023 a 13/01/2023, com quantidade 115.
 - Cada K235 do K230 agrupa um `Part Number` dos VINs daquele `Model code`. `DT_SAIDA` é a menor `Date` desses VINs no período. `COD_ITEM` é o `Part Number`. `QTD` é a soma da coluna `Quantity`, com 6 casas decimais. `COD_INS_SUBST` fica vazio.
 - Part Numbers ausentes no `0200` entram no K235 com o código da planilha e continuam listados para geração do 0200.
+- O botão **Gerar registros 0200** consulta a listagem PPB pelo `COD_ITEM`. A descrição, a unidade, o tipo, o NCM, a alíquota e o CEST vêm dessa linha. Se `COD_GEN` estiver vazio, ele recebe os dois primeiros dígitos do NCM. PartNumber sem linha correspondente não gera 0200.
+- O código do item é comparado por extenso. `59408` e `0059408` são itens diferentes, como no PVA.
 
 ## Observações
 

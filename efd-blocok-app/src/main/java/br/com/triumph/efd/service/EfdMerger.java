@@ -3,12 +3,15 @@ package br.com.triumph.efd.service;
 import br.com.triumph.efd.model.BlocoKResult;
 import br.com.triumph.efd.model.EfdFile;
 import br.com.triumph.efd.model.Registro0200Result;
+import br.com.triumph.efd.model.Registro0200Result.Registro0200Item;
 import br.com.triumph.efd.util.SpedLineUtils;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class EfdMerger {
@@ -77,24 +80,25 @@ public class EfdMerger {
                                      EfdFile efd,
                                      Registro0200Result registros0200,
                                      Consumer<String> progress) {
-        List<String> novas = new ArrayList<>();
-
-        // Garante unidade UNIT no 0190, se ainda não existir
-        boolean precisa0190 = !efd.possuiUnidade0190("UNIT");
-        if (precisa0190) {
-            novas.add("|0190|UNIT|UNIDADE|");
+        List<String> novas0190 = unidadesAusentes(efd, registros0200);
+        List<String> saida = new ArrayList<>(origem);
+        if (!novas0190.isEmpty()) {
+            int pos0190 = indiceApos(saida, "0190");
+            if (pos0190 < 0) {
+                pos0190 = indicePrimeiro(saida, "0200", "0990");
+            }
+            if (pos0190 < 0) {
+                pos0190 = saida.size();
+            }
+            saida.addAll(pos0190, novas0190);
         }
-        novas.addAll(registros0200.getLinhas());
 
-        int insertAt = localizarInsercao0200(origem);
-        List<String> saida = new ArrayList<>(origem.size() + novas.size());
-        saida.addAll(origem.subList(0, insertAt));
-        saida.addAll(novas);
-        saida.addAll(origem.subList(insertAt, origem.size()));
+        int insertAt = localizarInsercao0200(saida);
+        saida.addAll(insertAt, registros0200.getLinhas());
 
         if (progress != null) {
             progress.accept("Inseridos " + registros0200.total() + " registro(s) 0200"
-                    + (precisa0190 ? " e 1 registro 0190 (UNIT)" : "")
+                    + (novas0190.isEmpty() ? "" : " e " + novas0190.size() + " registro(s) 0190")
                     + " no Bloco 0.");
         }
         return saida;
@@ -108,7 +112,7 @@ public class EfdMerger {
         int idx0990 = -1;
         for (int i = 0; i < linhas.size(); i++) {
             String reg = SpedLineUtils.registro(linhas.get(i));
-            if ("0200".equals(reg) || "0205".equals(reg) || "0220".equals(reg) || "0190".equals(reg)) {
+            if ("0200".equals(reg) || "0205".equals(reg) || "0220".equals(reg)) {
                 ultimoItem = i;
             }
             if ("0990".equals(reg) && idx0990 < 0) {
@@ -122,6 +126,47 @@ public class EfdMerger {
             return idx0990;
         }
         return linhas.size();
+    }
+
+    private List<String> unidadesAusentes(EfdFile efd, Registro0200Result registros0200) {
+        Set<String> unidades = new LinkedHashSet<>();
+        for (Registro0200Item item : registros0200.getItens()) {
+            String unid = item.getUnidInv();
+            if (unid == null || unid.isBlank()) {
+                continue;
+            }
+            String codigo = unid.trim();
+            if (efd == null || !efd.possuiUnidade0190(codigo)) {
+                unidades.add(codigo);
+            }
+        }
+        List<String> linhas = new ArrayList<>();
+        for (String unid : unidades) {
+            linhas.add("|0190|" + unid + "|" + unid + "|");
+        }
+        return linhas;
+    }
+
+    private int indiceApos(List<String> linhas, String registro) {
+        int idx = -1;
+        for (int i = 0; i < linhas.size(); i++) {
+            if (registro.equals(SpedLineUtils.registro(linhas.get(i)))) {
+                idx = i;
+            }
+        }
+        return idx < 0 ? -1 : idx + 1;
+    }
+
+    private int indicePrimeiro(List<String> linhas, String... registros) {
+        for (int i = 0; i < linhas.size(); i++) {
+            String reg = SpedLineUtils.registro(linhas.get(i));
+            for (String esperado : registros) {
+                if (esperado.equals(reg)) {
+                    return i;
+                }
+            }
+        }
+        return -1;
     }
 
     private List<String> inserirBlocoK(List<String> origem, BlocoKResult blocoK, Consumer<String> progress) {

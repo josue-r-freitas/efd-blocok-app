@@ -127,10 +127,11 @@ public class Registro0200Panel extends JPanel {
         paginaAtual = 1;
 
         int qtd = todos.size();
+        int ausentes = result == null ? 0 : result.getNaoEncontrados().size();
         lblResumo.setText(String.format(
-                "<html>Registros 0200 gerados: <b>%d</b> &nbsp;|&nbsp; "
-                        + "UNID_INV=<b>UNIT</b> &nbsp;|&nbsp; TIPO_ITEM=<b>01</b> (matéria-prima)</html>",
-                qtd));
+                "<html>Registros 0200 gerados: <b>%d</b> a partir da listagem PPB (coluna COD_ITEM)."
+                        + " &nbsp;|&nbsp; Sem correspondência: <b>%d</b></html>",
+                qtd, ausentes));
 
         setEnabled(qtd > 0);
         if (qtd == 0) {
@@ -285,7 +286,9 @@ public class Registro0200Panel extends JPanel {
     }
 
     private static class ItensTableModel extends AbstractTableModel {
-        private final String[] cols = {"#", "COD_ITEM", "DESCR_ITEM", "UNID", "TIPO", "Origem"};
+        private final String[] cols = {
+                "#", "COD_ITEM", "DESCR_ITEM", "UNID", "TIPO", "NCM", "ALIQ_ICMS", "CEST", "Origem"
+        };
         private List<Registro0200Item> itens = List.of();
 
         void setItens(List<Registro0200Item> itens) {
@@ -317,7 +320,10 @@ public class Registro0200Panel extends JPanel {
                 case 2 -> i.getDescrItem();
                 case 3 -> i.getUnidInv();
                 case 4 -> i.getTipoItem();
-                case 5 -> i.getOrigem();
+                case 5 -> i.getCodNcm();
+                case 6 -> i.getAliqIcms();
+                case 7 -> i.getCest();
+                case 8 -> i.getOrigem();
                 default -> "";
             };
         }

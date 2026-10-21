@@ -13,6 +13,7 @@ public class Registro0200Result {
     private final List<String> linhas = new ArrayList<>();
     private final List<Registro0200Item> itens = new ArrayList<>();
     private final Map<String, Registro0200Item> porCodigo = new LinkedHashMap<>();
+    private final List<String> naoEncontrados = new ArrayList<>();
 
     public List<String> getLinhas() {
         return linhas;
@@ -44,14 +45,32 @@ public class Registro0200Result {
         return itens.isEmpty();
     }
 
+    public List<String> getNaoEncontrados() {
+        return naoEncontrados;
+    }
+
+    public void addNaoEncontrado(String partNumber) {
+        if (partNumber == null || partNumber.isBlank()) {
+            return;
+        }
+        String codigo = partNumber.trim();
+        if (!naoEncontrados.contains(codigo)) {
+            naoEncontrados.add(codigo);
+        }
+    }
+
     public static class Registro0200Item {
         private int numero;
         private String codItem;
         private String descrItem;
         private String unidInv = "UNIT";
         private String tipoItem = "01";
+        private String codBarra = "";
+        private String codAntItem = "";
         private String codNcm = "";
+        private String exIpi = "";
         private String codGen = "";
+        private String codLst = "";
         private String aliqIcms = "0";
         private String cest = "";
         private String origem; // PartNumber original / Load
@@ -94,6 +113,38 @@ public class Registro0200Result {
 
         public void setTipoItem(String tipoItem) {
             this.tipoItem = tipoItem;
+        }
+
+        public String getCodBarra() {
+            return codBarra;
+        }
+
+        public void setCodBarra(String codBarra) {
+            this.codBarra = codBarra;
+        }
+
+        public String getCodAntItem() {
+            return codAntItem;
+        }
+
+        public void setCodAntItem(String codAntItem) {
+            this.codAntItem = codAntItem;
+        }
+
+        public String getExIpi() {
+            return exIpi;
+        }
+
+        public void setExIpi(String exIpi) {
+            this.exIpi = exIpi;
+        }
+
+        public String getCodLst() {
+            return codLst;
+        }
+
+        public void setCodLst(String codLst) {
+            this.codLst = codLst;
         }
 
         public String getCodNcm() {
@@ -141,14 +192,14 @@ public class Registro0200Result {
             return "|0200|"
                     + nullToEmpty(codItem) + "|"
                     + truncar(nullToEmpty(descrItem), 255) + "|"
-                    + "|" // COD_BARRA
-                    + "|" // COD_ANT_ITEM
+                    + nullToEmpty(codBarra) + "|"
+                    + nullToEmpty(codAntItem) + "|"
                     + nullToEmpty(unidInv) + "|"
                     + nullToEmpty(tipoItem) + "|"
                     + nullToEmpty(codNcm) + "|"
-                    + "|" // EX_IPI
+                    + nullToEmpty(exIpi) + "|"
                     + nullToEmpty(codGen) + "|"
-                    + "|" // COD_LST
+                    + nullToEmpty(codLst) + "|"
                     + nullToEmpty(aliqIcms) + "|"
                     + nullToEmpty(cest) + "|";
         }
@@ -158,10 +209,14 @@ public class Registro0200Result {
                     String.valueOf(numero),
                     nullToEmpty(codItem),
                     nullToEmpty(descrItem),
+                    nullToEmpty(codBarra),
+                    nullToEmpty(codAntItem),
                     nullToEmpty(unidInv),
                     nullToEmpty(tipoItem),
                     nullToEmpty(codNcm),
+                    nullToEmpty(exIpi),
                     nullToEmpty(codGen),
+                    nullToEmpty(codLst),
                     nullToEmpty(aliqIcms),
                     nullToEmpty(cest),
                     nullToEmpty(origem)
@@ -170,8 +225,9 @@ public class Registro0200Result {
 
         public static String[] cabecalhoCsv() {
             return new String[]{
-                    "#", "COD_ITEM", "DESCR_ITEM", "UNID_INV", "TIPO_ITEM",
-                    "COD_NCM", "COD_GEN", "ALIQ_ICMS", "CEST", "Origem"
+                    "#", "COD_ITEM", "DESCR_ITEM", "COD_BARRA", "COD_ANT_ITEM",
+                    "UNID_INV", "TIPO_ITEM", "COD_NCM", "EX_IPI", "COD_GEN",
+                    "COD_LST", "ALIQ_ICMS", "CEST", "Origem"
             };
         }
 

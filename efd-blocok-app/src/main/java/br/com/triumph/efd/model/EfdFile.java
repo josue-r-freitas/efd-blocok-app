@@ -94,19 +94,7 @@ public class EfdFile {
             return null;
         }
         String raw = codigo.trim();
-        if (codigos0200.contains(raw)) {
-            return raw;
-        }
-        String noLeadingZeros = raw.replaceFirst("^0+(?!$)", "");
-        if (codigos0200.contains(noLeadingZeros)) {
-            return noLeadingZeros;
-        }
-        for (String c : codigos0200) {
-            if (c.replaceFirst("^0+(?!$)", "").equals(noLeadingZeros)) {
-                return c;
-            }
-        }
-        return null;
+        return codigos0200.contains(raw) ? raw : null;
     }
 
     /**

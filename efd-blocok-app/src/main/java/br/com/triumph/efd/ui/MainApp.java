@@ -258,15 +258,39 @@ public class MainApp extends JFrame {
             Registro0200Result r = service.gerarRegistros0200(this::appendLogSafe);
             SwingUtilities.invokeLater(() -> {
                 appendLog("=== Registros 0200 gerados ===");
-                appendLog("Códigos únicos: " + r.total());
-                appendLog("UNID_INV=UNIT | TIPO_ITEM=01 (matéria-prima)");
+                appendLog("Códigos encontrados na listagem PPB: " + r.total());
+                if (!r.getNaoEncontrados().isEmpty()) {
+                    appendLog("PartNumbers sem linha em COD_ITEM: " + r.getNaoEncontrados().size());
+                    int max = Math.min(30, r.getNaoEncontrados().size());
+                    for (int i = 0; i < max; i++) {
+                        appendLog("  - " + r.getNaoEncontrados().get(i));
+                    }
+                    if (r.getNaoEncontrados().size() > max) {
+                        appendLog("  ... +" + (r.getNaoEncontrados().size() - max) + " PartNumbers");
+                    }
+                }
                 registro0200Panel.carregar(r);
-                chkIncluir0200.setSelected(true);
-                tabs.setSelectedIndex(3);
+                chkIncluir0200.setSelected(r.total() > 0);
+                if (r.total() > 0) {
+                    tabs.setSelectedIndex(3);
+                }
                 setButtonsState();
 
+                if (r.total() == 0) {
+                    JOptionPane.showMessageDialog(this,
+                            "Nenhum PartNumber foi encontrado na coluna COD_ITEM da listagem PPB.",
+                            "0200 não gerado",
+                            JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+
+                String aviso = r.getNaoEncontrados().isEmpty()
+                        ? ""
+                        : "\n\n" + r.getNaoEncontrados().size()
+                        + " PartNumber(s) não estão na coluna COD_ITEM e não geraram 0200.";
                 int opcao = JOptionPane.showConfirmDialog(this,
-                        "Foram gerados " + r.total() + " registros 0200.\n\n"
+                        "Foram gerados " + r.total() + " registros 0200 com os dados da listagem PPB."
+                                + aviso + "\n\n"
                                 + "Deseja regenerar o Bloco K agora para incluir estes insumos no K235?",
                         "Regenerar Bloco K?",
                         JOptionPane.YES_NO_OPTION,
