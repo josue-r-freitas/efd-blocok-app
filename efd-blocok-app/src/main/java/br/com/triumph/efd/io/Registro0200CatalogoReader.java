@@ -1,6 +1,7 @@
 package br.com.triumph.efd.io;
 
 import br.com.triumph.efd.model.Registro0200Result.Registro0200Item;
+import org.apache.poi.openxml4j.util.ZipSecureFile;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
@@ -34,6 +35,8 @@ public class Registro0200CatalogoReader {
 
         DataFormatter formatter = new DataFormatter(Locale.forLanguageTag("pt-BR"));
         Map<String, Registro0200Item> porCodigo = new LinkedHashMap<>();
+        // A listagem PPB comprime xl/styles.xml abaixo do limite padrão do POI (0,01).
+        ZipSecureFile.setMinInflateRatio(0.001);
         try (InputStream in = Files.newInputStream(path);
              Workbook wb = WorkbookFactory.create(in)) {
             Sheet sheet = wb.getNumberOfSheets() == 0 ? null : wb.getSheetAt(0);
