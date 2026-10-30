@@ -280,15 +280,19 @@ public class MainApp extends JFrame {
                     }
                 }
                 registro0200Panel.carregar(r);
+                int semGeracao = insumosIgnoradosPanel.marcarFalhas0200(r);
                 chkIncluir0200.setSelected(r.total() > 0);
-                if (r.total() > 0) {
+                if (semGeracao > 0) {
+                    tabs.setSelectedIndex(2);
+                } else if (r.total() > 0) {
                     tabs.setSelectedIndex(3);
                 }
                 setButtonsState();
 
                 if (r.total() == 0) {
                     JOptionPane.showMessageDialog(this,
-                            "Nenhum PartNumber foi encontrado na coluna COD_ITEM da listagem PPB.",
+                            "Nenhum PartNumber foi encontrado na coluna COD_ITEM da listagem.\n"
+                                    + "A aba Insumos ignorados mostra esses itens e o motivo.",
                             "0200 não gerado",
                             JOptionPane.WARNING_MESSAGE);
                     return;
@@ -297,7 +301,8 @@ public class MainApp extends JFrame {
                 String aviso = r.getNaoEncontrados().isEmpty()
                         ? ""
                         : "\n\n" + r.getNaoEncontrados().size()
-                        + " PartNumber(s) não estão na coluna COD_ITEM e não geraram 0200.";
+                        + " PartNumber(s) não estão na coluna COD_ITEM e não geraram 0200.\n"
+                        + "Eles ficam na aba Insumos ignorados, com o motivo na última coluna.";
                 int opcao = JOptionPane.showConfirmDialog(this,
                         "Foram gerados " + r.total() + " registros 0200 com os dados da listagem PPB."
                                 + aviso + "\n\n"
@@ -328,7 +333,7 @@ public class MainApp extends JFrame {
         appendLog("K235 (insumos consumidos): " + r.getQtdK235());
         appendLog("K200 preservados: " + r.getQtdK200());
         appendLog("Insumos ignorados (sem 0200): " + r.getInsumosIgnorados());
-        if (r.getInsumosIgnorados() > 0) {
+        if (r.getInsumosIgnorados() > 0 && !apos0200) {
             appendLog("Use a aba 'Insumos ignorados' → botão 'Gerar registros 0200'.");
         }
         if (!r.getAvisos().isEmpty()) {
@@ -343,8 +348,14 @@ public class MainApp extends JFrame {
         }
         viewerPanel.carregar(r, service.getProdutos(), service.getInsumos());
         insumosIgnoradosPanel.carregar(r);
+        boolean aindaSemListagem = false;
+        if (apos0200 && service.getRegistros0200() != null) {
+            aindaSemListagem = insumosIgnoradosPanel.marcarFalhas0200(service.getRegistros0200()) > 0;
+        }
         chkIncluirBlocoK.setSelected(true);
-        if (apos0200) {
+        if (apos0200 && aindaSemListagem) {
+            tabs.setSelectedIndex(2);
+        } else if (apos0200) {
             tabs.setSelectedIndex(1);
         } else {
             tabs.setSelectedIndex(r.getInsumosIgnorados() > 0 ? 2 : 1);

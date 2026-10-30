@@ -4,9 +4,11 @@ import br.com.triumph.efd.io.InsumosIgnoradosExportService;
 import br.com.triumph.efd.io.Registro0200CatalogoReader;
 import br.com.triumph.efd.model.BlocoKResult;
 import br.com.triumph.efd.model.InsumoIgnorado;
+import br.com.triumph.efd.model.Registro0200Result;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -28,20 +30,27 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class InsumosIgnoradosPanel extends JPanel {
 
     private static final int PAGE_SIZE = 500;
     private static final DateTimeFormatter DATA_BR = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    static final String MOTIVO_SEM_LISTAGEM =
+            "Não foi possível gerar o 0200: PartNumber não encontrado na coluna COD_ITEM da listagem informada.";
+    static final String MOTIVO_PART_VAZIO =
+            "Não foi possível gerar o 0200: PartNumber vazio.";
 
     private final InsumosIgnoradosExportService exportService = new InsumosIgnoradosExportService();
     private final JLabel lblResumo = new JLabel("Nenhum insumo ignorado registrado.");
     private final JTextField txtBusca = new JTextField(24);
     private final JButton btnFiltrar = new JButton("Filtrar");
     private final JButton btnLimpar = new JButton("Limpar");
+    private final JCheckBox chkSomenteSem0200 = new JCheckBox("Somente os que não geraram 0200");
     private final JButton btnAnterior = new JButton("◀ Anterior");
     private final JButton btnProximo = new JButton("Próximo ▶");
     private final JLabel lblPagina = new JLabel("Página 0 / 0");
@@ -85,6 +94,7 @@ public class InsumosIgnoradosPanel extends JPanel {
         filtros.add(txtBusca);
         filtros.add(btnFiltrar);
         filtros.add(btnLimpar);
+        filtros.add(chkSomenteSem0200);
         filtros.add(btnAnterior);
         filtros.add(lblPagina);
         filtros.add(btnProximo);
@@ -125,6 +135,7 @@ public class InsumosIgnoradosPanel extends JPanel {
             txtBusca.setText("");
             aplicarFiltro();
         });
+        chkSomenteSem0200.addActionListener(e -> aplicarFiltro());
         btnAnterior.addActionListener(e -> {
             if (paginaAtual > 1) {
                 paginaAtual--;
@@ -157,6 +168,43 @@ public class InsumosIgnoradosPanel extends JPanel {
         return Path.of(texto.trim());
     }
 
+    /**
+     * Marca, na lista já exibida, os insumos cujo 0200 não pôde ser gerado.
+     * @return quantidade de PartNumbers distintos sem correspondência na listagem
+     */
+    public int marcarFalhas0200(Registro0200Result result) {
+        Set<String> ausentes = new HashSet<>();
+        if (result != null) {
+            ausentes.addAll(result.getNaoEncontrados());
+        }
+        int linhas = 0;
+        Set<String> partes = new HashSet<>();
+        for (InsumoIgnorado insumo : todosInsumos) {
+            String part = insumo.getPartNumber() == null ? "" : insumo.getPartNumber().trim();
+            if (part.isEmpty()) {
+                insumo.setMotivo(MOTIVO_PART_VAZIO);
+                linhas++;
+                continue;
+            }
+            if (ausentes.contains(part)) {
+                insumo.setMotivo(MOTIVO_SEM_LISTAGEM);
+                linhas++;
+                partes.add(part);
+            }
+        }
+        chkSomenteSem0200.setEnabled(linhas > 0);
+        chkSomenteSem0200.setSelected(linhas > 0);
+        if (linhas > 0) {
+            lblResumo.setText(String.format(
+                    "<html>Insumos ignorados (sem 0200): <b>%d</b>"
+                            + " &nbsp;|&nbsp; Não geraram 0200: <b>%d</b> linha(s), <b>%d</b> PartNumber(s)."
+                            + " O motivo está na última coluna.</html>",
+                    todosInsumos.size(), linhas, partes.size()));
+        }
+        aplicarFiltro();
+        return linhas;
+    }
+
     private void preencherListagemPadrao() {
         Path padrao = Registro0200CatalogoReader.ARQUIVO_PADRAO;
         if (Files.isRegularFile(padrao)) {
@@ -186,6 +234,8 @@ public class InsumosIgnoradosPanel extends JPanel {
         paginaAtual = 1;
 
         int qtd = todosInsumos.size();
+        chkSomenteSem0200.setSelected(false);
+        chkSomenteSem0200.setEnabled(false);
         lblResumo.setText(String.format(
                 "<html>Insumos ignorados (sem 0200): <b>%d</b> &nbsp;|&nbsp; "
                         + "PartNumber ausente no 0200. O K235 foi gerado com o código da planilha.</html>",
@@ -210,6 +260,8 @@ public class InsumosIgnoradosPanel extends JPanel {
         insumosFiltrados = List.of();
         paginaAtual = 1;
         tableModel.setInsumos(List.of());
+        chkSomenteSem0200.setSelected(false);
+        chkSomenteSem0200.setEnabled(false);
         lblResumo.setText("Nenhum insumo ignorado registrado.");
         lblPagina.setText("Página 0 / 0");
         lblExportStatus.setText(" ");
@@ -230,25 +282,32 @@ public class InsumosIgnoradosPanel extends JPanel {
         btnGerar0200.setEnabled(enabled && blocoK != null && !todosInsumos.isEmpty());
         txtListagem0200.setEnabled(true);
         btnSelecionarListagem.setEnabled(true);
+        if (!enabled) {
+            chkSomenteSem0200.setEnabled(false);
+        }
         table.setEnabled(enabled);
     }
 
     private void aplicarFiltro() {
         String busca = txtBusca.getText() == null ? "" : txtBusca.getText().trim().toLowerCase(Locale.ROOT);
-        if (busca.isEmpty()) {
-            insumosFiltrados = todosInsumos;
-        } else {
-            insumosFiltrados = todosInsumos.stream()
-                    .filter(i -> contem(i.getCodDocOp(), busca)
-                            || contem(i.getCodItemProduto(), busca)
-                            || contem(i.getDescricaoProduto(), busca)
-                            || contem(i.getPartNumber(), busca)
-                            || contem(i.getDescricaoInsumo(), busca)
-                            || contem(i.getMotivo(), busca))
-                    .collect(Collectors.toList());
-        }
+        boolean somenteFalha = chkSomenteSem0200.isSelected();
+        insumosFiltrados = todosInsumos.stream()
+                .filter(i -> !somenteFalha || falhouGeracao0200(i))
+                .filter(i -> busca.isEmpty()
+                        || contem(i.getCodDocOp(), busca)
+                        || contem(i.getCodItemProduto(), busca)
+                        || contem(i.getDescricaoProduto(), busca)
+                        || contem(i.getPartNumber(), busca)
+                        || contem(i.getDescricaoInsumo(), busca)
+                        || contem(i.getMotivo(), busca))
+                .collect(Collectors.toList());
         paginaAtual = 1;
         atualizarPagina();
+    }
+
+    private boolean falhouGeracao0200(InsumoIgnorado insumo) {
+        String motivo = insumo.getMotivo();
+        return motivo != null && motivo.startsWith("Não foi possível gerar o 0200:");
     }
 
     private boolean contem(String valor, String busca) {
