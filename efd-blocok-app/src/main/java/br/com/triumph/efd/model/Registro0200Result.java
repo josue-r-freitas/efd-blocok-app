@@ -14,6 +14,8 @@ public class Registro0200Result {
     private final List<Registro0200Item> itens = new ArrayList<>();
     private final Map<String, Registro0200Item> porCodigo = new LinkedHashMap<>();
     private final List<String> naoEncontrados = new ArrayList<>();
+    private final List<String> produtosGerados = new ArrayList<>();
+    private final List<String> produtosNaoEncontrados = new ArrayList<>();
 
     public List<String> getLinhas() {
         return linhas;
@@ -56,6 +58,32 @@ public class Registro0200Result {
         String codigo = partNumber.trim();
         if (!naoEncontrados.contains(codigo)) {
             naoEncontrados.add(codigo);
+        }
+    }
+
+    public List<String> getProdutosGerados() {
+        return produtosGerados;
+    }
+
+    public void addProdutoGerado(String codigo) {
+        adicionarUnico(produtosGerados, codigo);
+    }
+
+    public List<String> getProdutosNaoEncontrados() {
+        return produtosNaoEncontrados;
+    }
+
+    public void addProdutoNaoEncontrado(String codigo) {
+        adicionarUnico(produtosNaoEncontrados, codigo);
+    }
+
+    private static void adicionarUnico(List<String> lista, String codigo) {
+        if (codigo == null || codigo.isBlank()) {
+            return;
+        }
+        String valor = codigo.trim();
+        if (!lista.contains(valor)) {
+            lista.add(valor);
         }
     }
 

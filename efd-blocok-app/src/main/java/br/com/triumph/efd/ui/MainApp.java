@@ -2,6 +2,8 @@ package br.com.triumph.efd.ui;
 
 import br.com.triumph.efd.model.BlocoKResult;
 import br.com.triumph.efd.model.EfdFile;
+import br.com.triumph.efd.model.Item0200SemReferencia;
+import br.com.triumph.efd.model.ProdutoK230Tipo;
 import br.com.triumph.efd.model.Registro0200Result;
 import br.com.triumph.efd.service.EfdBlocoKService;
 
@@ -50,6 +52,10 @@ public class MainApp extends JFrame {
     private final BlocoKViewerPanel viewerPanel = new BlocoKViewerPanel();
     private final InsumosIgnoradosPanel insumosIgnoradosPanel = new InsumosIgnoradosPanel();
     private final Registro0200Panel registro0200Panel = new Registro0200Panel();
+    private final Registro0200SemReferenciaPanel semReferenciaPanel = new Registro0200SemReferenciaPanel();
+    private final ProdutosK230TipoPanel produtosK230TipoPanel = new ProdutosK230TipoPanel();
+    private static final int ABA_SEM_REFERENCIA = 4;
+    private static final int ABA_TIPO_K230 = 5;
 
     private final JButton btnImportarEfd = new JButton("1. Importar EFD");
     private final JButton btnImportarProdutos = new JButton("2. Produtos Acabados");
@@ -113,6 +119,10 @@ public class MainApp extends JFrame {
         tabs.addTab("Bloco K gerado", viewerPanel);
         tabs.addTab("Insumos ignorados", insumosIgnoradosPanel);
         tabs.addTab("0200 gerados", registro0200Panel);
+        tabs.addTab("0200 sem referência em qualquer bloco", semReferenciaPanel);
+        tabs.addTab("Produtos no K230 com tipo diferente de '04' ou '03' no 0200", produtosK230TipoPanel);
+        tabs.setEnabledAt(ABA_SEM_REFERENCIA, false);
+        tabs.setEnabledAt(ABA_TIPO_K230, false);
 
         progress.setStringPainted(true);
         progress.setIndeterminate(false);
@@ -145,6 +155,8 @@ public class MainApp extends JFrame {
 
     private void wireEvents() {
         insumosIgnoradosPanel.setOnGerar0200(this::gerarRegistros0200);
+        semReferenciaPanel.setAoRemover(this::remover0200SemReferencia);
+        produtosK230TipoPanel.setAoAlterar(this::alterarTipoProdutosK230);
 
         chkIncluirBlocoK.addActionListener(e -> setButtonsState());
         chkIncluir0200.addActionListener(e -> setButtonsState());
@@ -162,6 +174,14 @@ public class MainApp extends JFrame {
                         viewerPanel.limpar();
                         insumosIgnoradosPanel.limpar();
                         registro0200Panel.limpar();
+                        semReferenciaPanel.limpar();
+                        produtosK230TipoPanel.limpar();
+                        if (tabs.getSelectedIndex() == ABA_SEM_REFERENCIA
+                                || tabs.getSelectedIndex() == ABA_TIPO_K230) {
+                            tabs.setSelectedIndex(0);
+                        }
+                        tabs.setEnabledAt(ABA_SEM_REFERENCIA, false);
+                        tabs.setEnabledAt(ABA_TIPO_K230, false);
                         appendLog("EFD importado: " + efd.getNomeEmpresa()
                                 + " | CNPJ " + efd.getCnpj()
                                 + " | Período " + efd.getDataInicial() + " a " + efd.getDataFinal()
@@ -229,6 +249,8 @@ public class MainApp extends JFrame {
                     appendLog("Linhas: " + novo.size());
                     appendLog("Incluiu Bloco K: " + (incluirK ? "sim" : "não"));
                     appendLog("Incluiu 0200 gerados: " + (incluir0200 ? "sim (" + service.getRegistros0200().total() + " itens)" : "não"));
+                    atualizarAbaSemReferencia();
+                    atualizarAbaTipoK230();
                     setButtonsState();
                 });
             });
@@ -269,6 +291,12 @@ public class MainApp extends JFrame {
                 appendLog("=== Registros 0200 gerados ===");
                 appendLog("Listagem: " + listagem);
                 appendLog("Códigos encontrados na listagem PPB: " + r.total());
+                if (!r.getProdutosGerados().isEmpty()) {
+                    appendLog("Produtos incluídos no 0200: " + String.join(", ", r.getProdutosGerados()));
+                }
+                if (!r.getProdutosNaoEncontrados().isEmpty()) {
+                    appendLog("Produtos sem linha em COD_ITEM: " + String.join(", ", r.getProdutosNaoEncontrados()));
+                }
                 if (!r.getNaoEncontrados().isEmpty()) {
                     appendLog("PartNumbers sem linha em COD_ITEM: " + r.getNaoEncontrados().size());
                     int max = Math.min(30, r.getNaoEncontrados().size());
@@ -280,6 +308,8 @@ public class MainApp extends JFrame {
                     }
                 }
                 registro0200Panel.carregar(r);
+                ocultarAbaSemReferencia();
+                ocultarAbaTipoK230();
                 int semGeracao = insumosIgnoradosPanel.marcarFalhas0200(r);
                 chkIncluir0200.setSelected(r.total() > 0);
                 if (semGeracao > 0) {
@@ -303,6 +333,13 @@ public class MainApp extends JFrame {
                         : "\n\n" + r.getNaoEncontrados().size()
                         + " PartNumber(s) não estão na coluna COD_ITEM e não geraram 0200.\n"
                         + "Eles ficam na aba Insumos ignorados, com o motivo na última coluna.";
+                if (!r.getProdutosGerados().isEmpty()) {
+                    aviso += "\n\nProdutos incluídos no 0200: " + String.join(", ", r.getProdutosGerados()) + ".";
+                }
+                if (!r.getProdutosNaoEncontrados().isEmpty()) {
+                    aviso += "\n\nProdutos sem linha em COD_ITEM: "
+                            + String.join(", ", r.getProdutosNaoEncontrados()) + ".";
+                }
                 int opcao = JOptionPane.showConfirmDialog(this,
                         "Foram gerados " + r.total() + " registros 0200 com os dados da listagem PPB."
                                 + aviso + "\n\n"
@@ -352,6 +389,8 @@ public class MainApp extends JFrame {
         if (apos0200 && service.getRegistros0200() != null) {
             aindaSemListagem = insumosIgnoradosPanel.marcarFalhas0200(service.getRegistros0200()) > 0;
         }
+        ocultarAbaSemReferencia();
+        ocultarAbaTipoK230();
         chkIncluirBlocoK.setSelected(true);
         if (apos0200 && aindaSemListagem) {
             tabs.setSelectedIndex(2);
@@ -361,6 +400,77 @@ public class MainApp extends JFrame {
             tabs.setSelectedIndex(r.getInsumosIgnorados() > 0 ? 2 : 1);
         }
         setButtonsState();
+    }
+
+    private void ocultarAbaSemReferencia() {
+        if (tabs.getSelectedIndex() == ABA_SEM_REFERENCIA) {
+            tabs.setSelectedIndex(0);
+        }
+        semReferenciaPanel.limpar();
+        tabs.setEnabledAt(ABA_SEM_REFERENCIA, false);
+    }
+
+    private void atualizarAbaSemReferencia() {
+        if (service.getNovoEfd() == null) {
+            ocultarAbaSemReferencia();
+            return;
+        }
+        var itens = service.listar0200SemReferencia();
+        semReferenciaPanel.carregar(itens);
+        tabs.setEnabledAt(ABA_SEM_REFERENCIA, true);
+        appendLog("0200 sem referência em qualquer bloco: " + itens.size());
+    }
+
+    private void ocultarAbaTipoK230() {
+        if (tabs.getSelectedIndex() == ABA_TIPO_K230) {
+            tabs.setSelectedIndex(0);
+        }
+        produtosK230TipoPanel.limpar();
+        tabs.setEnabledAt(ABA_TIPO_K230, false);
+    }
+
+    private void atualizarAbaTipoK230() {
+        if (service.getNovoEfd() == null) {
+            ocultarAbaTipoK230();
+            return;
+        }
+        var itens = service.listarProdutosK230TipoDivergente();
+        produtosK230TipoPanel.carregar(itens);
+        tabs.setEnabledAt(ABA_TIPO_K230, true);
+        appendLog("Produtos no K230 com tipo diferente de 03 ou 04: " + itens.size());
+        if (!itens.isEmpty()) {
+            tabs.setSelectedIndex(ABA_TIPO_K230);
+        }
+    }
+
+    private void alterarTipoProdutosK230(List<ProdutoK230Tipo> itens) {
+        int alterados = service.alterarTipoProdutosK230Para04(itens);
+        appendLog("TIPO_ITEM alterado para 04 em " + alterados + " produto(s) do K230.");
+        ocultarAbaSemReferencia();
+        ocultarAbaTipoK230();
+        setButtonsState();
+        JOptionPane.showMessageDialog(this,
+                "O TIPO_ITEM de " + alterados + " produto(s) foi alterado para 04.\n"
+                        + "Clique em 5. Gerar Novo EFD para montar o arquivo com essa alteração.",
+                "Tipo alterado",
+                JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void remover0200SemReferencia(List<Item0200SemReferencia> itens) {
+        try {
+            int removidos = service.remover0200SemReferencia(itens);
+            appendLog("Removidos " + removidos + " registro(s) 0200 sem referência, com os filhos vinculados.");
+            atualizarAbaSemReferencia();
+            atualizarAbaTipoK230();
+            JOptionPane.showMessageDialog(this,
+                    "Foram removidos " + removidos + " registro(s) 0200 do novo EFD.\n"
+                            + "Salve o arquivo para gravar essa versão.",
+                    "0200 removidos",
+                    JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception ex) {
+            appendLog("Erro ao remover 0200: " + ex.getMessage());
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void setButtonsState() {

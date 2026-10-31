@@ -130,4 +130,77 @@ public class EfdFile {
     public int size() {
         return lines.size();
     }
+
+    /**
+     * Remove os registros 0200 informados e os filhos ligados a cada um (0205, 0206, 0210, 0220 e 0221).
+     *
+     * @return quantidade de registros 0200 removidos
+     */
+    public int removerItens0200(Set<String> codigos) {
+        if (codigos == null || codigos.isEmpty()) {
+            return 0;
+        }
+        Set<String> filhos = Set.of("0205", "0206", "0210", "0220", "0221");
+        List<String> restantes = new ArrayList<>(lines.size());
+        int removidos = 0;
+        boolean removendoFilhos = false;
+        for (String line : lines) {
+            String[] campos = line.split("\\|", -1);
+            String reg = campos.length > 1 ? campos[1] : "";
+            if ("0200".equals(reg)) {
+                String cod = campos.length > 2 && campos[2] != null ? campos[2].trim() : "";
+                if (codigos.contains(cod)) {
+                    removendoFilhos = true;
+                    removidos++;
+                    codigos0200.remove(cod);
+                    descricao0200.remove(cod);
+                    continue;
+                }
+                removendoFilhos = false;
+            } else if (removendoFilhos && filhos.contains(reg)) {
+                continue;
+            } else {
+                removendoFilhos = false;
+            }
+            restantes.add(line);
+        }
+        lines.clear();
+        lines.addAll(restantes);
+        return removidos;
+    }
+
+    /**
+     * Troca o TIPO_ITEM dos registros 0200 informados.
+     *
+     * @return códigos cuja linha foi alterada
+     */
+    public Set<String> alterarTipoItem0200(Set<String> codigos, String novoTipo) {
+        Set<String> alterados = new LinkedHashSet<>();
+        if (codigos == null || codigos.isEmpty() || novoTipo == null || novoTipo.isBlank()) {
+            return alterados;
+        }
+        String tipo = novoTipo.trim();
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (!line.startsWith("|0200|")) {
+                continue;
+            }
+            String[] campos = line.split("\\|", -1);
+            if (campos.length <= 7) {
+                continue;
+            }
+            String cod = campos[2] == null ? "" : campos[2].trim();
+            if (!codigos.contains(cod)) {
+                continue;
+            }
+            String atual = campos[7] == null ? "" : campos[7].trim();
+            if (tipo.equals(atual)) {
+                continue;
+            }
+            campos[7] = tipo;
+            lines.set(i, String.join("|", campos));
+            alterados.add(cod);
+        }
+        return alterados;
+    }
 }
